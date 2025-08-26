@@ -202,6 +202,87 @@
         return proj;
       }
 
+      
+      // Parse a week identifier (e.g. "2019W01") into year and week numbers
+      function parseWeek(weekId) {
+        if (!weekId || typeof weekId !== 'string' || weekId.length < 6) {
+          return { year: 0, week: 0 };
+        }
+        const yearPart = weekId.slice(0, 4);
+        const weekPart = weekId.slice(5);
+        const year = parseInt(yearPart, 10);
+        const weekStr = weekPart.replace(/^0+/, '') || '0';
+        const week = parseInt(weekStr, 10);
+        if (isNaN(year) || isNaN(week)) return { year: 0, week: 0 };
+        return { year, week };
+      }
+
+      // Determine the maximum observed week number for each year
+      function computeMaxWeekByYear(series) {
+        const maxWeeks = {};
+        Object.keys(series).forEach((mode) => {
+          series[mode].forEach(({ week }) => {
+            const { year, week: wk } = parseWeek(week);
+            if (!year || !wk) return;
+            if (!maxWeeks[year] || wk > maxWeeks[year]) {
+              maxWeeks[year] = wk;
+                    // derive week metadata
+      const mwByYear = computeMaxWeekByYear(series);
+      const weekVals = Object.values(mwByYear);
+      const overallMax = weekVals.length ? Math.max(...weekVals) : 52;
+      setMaxWeekByYear(mwByYear);
+      setMaxWeek(overallMax);
+      setWeekRange([1, overallMax]);
+            }
+          });
+        });
+        return maxWeeks;
+      }
+
+      // Aggregate weekly data into yearly totals for a given week range
+      function aggregateByYearWeekRange(series, startWeek, endWeek) {
+        const agg = {};
+        Object.keys(series).forEach((mode) => {
+          series[mode].forEach(({ week, value }) => {
+            if (value === null || isNaN(value)) return;
+            const { year, week: wk } = parseWeek(week);
+            if (!year || !wk) return;
+            if (wk < startWeek || wk > endWeek) return;
+            if (!agg[year]) agg[year] = {};
+            if (!agg[year][mode]) agg[year][mode] = 0;
+            agg[year][mode] += value;
+          });
+        });
+        return agg;
+      }
+
+      // Compute CAGR projections while optionally excluding the final year if partial
+      function computeProjectionsAdjusted(agg, years, modes, horizon = 5, excludeLastYear = false) {
+        const proj = {};
+        if (!years || years.length === 0) return proj;
+        const lastIndex = years.length - 1;
+        const lastFullIndex = excludeLastYear && years.length > 1 ? years.length - 2 : lastIndex;
+        const firstYear = years[0];
+        const lastFullYear = years[lastFullIndex];
+        const periods = lastFullYear - firstYear;
+        modes.forEach((mode) => {
+          const id = mode.id;
+          const startVal = agg[firstYear]?.[id] ?? 0;
+          const endVal = agg[lastFullYear]?.[id] ?? 0;
+          let cagr = 0;
+          if (startVal > 0 && periods > 0) {
+            cagr = Math.pow(endVal / startVal, 1 / periods) - 1;
+          }
+          let base = agg[years[lastIndex]]?.[id] ?? 0;
+          proj[id] = [];
+          for (let i = 1; i <= horizon; i++) {
+            base = base * (1 + cagr);
+            proj[id].push({ year: years[lastIndex] + i, value: base });
+          }
+        });
+        return proj;
+      }
+
       function App() {
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -210,6 +291,9 @@
         const [agg, setAgg] = useState({});
         const [selectedModes, setSelectedModes] = useState([]);
         const [yearRange, setYearRange] = useState([2019, 2025]);
+          const [weekRange, setWeekRange] = useState([1, 52]);
+  const [maxWeek, setMaxWeek] = useState(52);
+  const [maxWeekByYear, setMaxWeekByYear] = useState({});
         const chartRef = useRef(null);
         const chartInstanceRef = useRef(null);
 
@@ -219,8 +303,9 @@
             try {
               const resp = await fetch(DATA_JSON_URL);
               if (!resp.ok) throw new Error('JSON fetch failed');
-              const json = await resp.json();
-              const { modes, series } = parseJsonStat(json);
+ 
+
+
               const aggregated = aggregateByYear(series);
               setModes(modes);
               setSeries(series);
