@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Irish Public Transport Dashboard</title>
+    <!-- Pull in React and ReactDOM from a CDN.  These UMD builds are
+         sufficient for a small single‑page app without a build step. -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- PapaParse for CSV parsing and Chart.js for visualisation -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+      /* Simple styles to make the dashboard readable.  You can tweak these
+         values or replace them entirely with your own styles if desired. */
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        background-color: #f3f4f6;
+        margin: 0;
+        padding: 1rem;
+        color: #1f2937;
+      }
+      h1 {
+        text-align: center;
+        font-size: 1.75rem;
+        margin-bottom: 1rem;
+      }
+      .card {
+        background: #ffffff;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+        margin-bottom: 1rem;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      .filter-group {
+        display: flex;
+        flex-direction: column;
+      }
+      .summary-container {
+        display: grid;
+        gap: 1rem;
+      }
+      @media (min-width: 600px) {
+        .summary-container {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .summary-card {
+        background: #ffffff;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      .summary-title {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+      .summary-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+      }
+      .summary-diff {
+        font-size: 0.875rem;
+      }
+      .chart-container {
+        position: relative;
+        height: 400px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="text/javascript">
+      // Use React from the global scope.  These variables are provided by the
+      // unpkg CDN scripts loaded above.
+      const { useState, useEffect, useRef } = React;
+
+      // Endpoints for the THA25 dataset.  We try JSON first because it
+      // includes descriptive labels; if that fails we fall back to CSV.
+      const DATA_JSON_URL =
+        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
+      const DATA_CSV_URL =
+        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/CSV/1.0/en';
+
+      /**
+       * Parse the JSON‑stat representation into a structure of modes and
+       * weekly series.  Returns an object with a `modes` array (id, name)
+       * and a `series` map keyed by mode id to arrays of {week, value}.
+       */
+      function parseJsonStat(json) {
+        const dimTime = json.dimension['TLIST(W1)'].category.index;
+        const modeIds = json.dimension['C03935V04687'].category.index;
+        const modeLabels = json.dimension['C03935V04687'].category.label;
+        const values = json.value;
+        const result = {};
+        let idx = 0;
+        for (let t = 0; t < dimTime.length; t++) {
+          const weekKey = dimTime[t];
+          for (let m = 0; m < modeIds.length; m++) {
+            const modeId = modeIds[m];
+            const value = values[idx++];
+            if (!result[modeId]) result[modeId] = [];
+            result[modeId].push({ week: weekKey, value: value === null ? null : Number(value) });
+          }
+        }
+        const modes = modeIds.map((id) => ({ id, name: modeLabels[id] }));
+        return { modes, series: result };
+      }
+
+      /**
+       * Parse CSV fallback into the same structure as parseJsonStat.  Since
+       * the CSV format may not include descriptive labels for modes, the
+       * identifiers are used as names.
+       */
+      function parseCsv(text) {
+        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+        const series = {};
+        const modeSet = new Set();
+        for (const row of parsed.data) {
+          const mode = row['C03935V04687'] || row['MODE'] || row['C03935V04687 '] || row['C03935V04687'];
+          const week = row['TLIST(W1)'] || row['WEEK'] || row['TLIST(W1) '];
+          const valStr = row['value'] || row['VALUE'] || row['Observation'];
+          const value = valStr === undefined || valStr === '' ? null : Number(valStr);
+          if (!mode || !week) continue;
+          modeSet.add(mode);
+          if (!series[mode]) series[mode] = [];
+          series[mode].push({ week, value: isNaN(value) ? null : value });
+        }
+        const modes = Array.from(modeSet).map((id) => ({ id, name: id }));
+        return { modes, series };
+      }
+
+      /**
+       * Aggregate weekly series into annual totals per mode.  Missing values
+       * are ignored when summing.
+       */
+      function aggregateByYear(series) {
+        const agg = {};
+        Object.keys(series).forEach((mode) => {
+          series[mode].forEach(({ week, value }) => {
+            if (value === null || isNaN(value)) return;
+            const year = parseInt(week.slice(0, 4), 10);
+            if (!agg[year]) agg[year] = {};
+            if (!agg[year][mode]) agg[year][mode] = 0;
+            agg[year][mode] += value;
+          });
+        });
+        return agg;
+      }
+
+      /**
+       * Compute year‑on‑year differences for each mode.
+       */
+      function computeYoY(agg, modes) {
+        const years = Object.keys(agg)
+          .map((y) => Number(y))
+          .sort((a, b) => a - b);
+        const diff = {};
+        if (years.length < 2) return diff;
+        const last = years[years.length - 1];
+        const prev = years[years.length - 2];
+        modes.forEach((mode) => {
+          const id = mode.id;
+          const current = agg[last]?.[id] ?? 0;
+          const previous = agg[prev]?.[id] ?? 0;
+          diff[id] = current - previous;
+        });
+        return diff;
+      }
+
+      /**
+       * Compute CAGR projections for each mode for a fixed horizon of
+       * years beyond the last available year.
+       */
+      function computeProjections(agg, years, modes, horizon = 5) {
+        const proj = {};
+        modes.forEach((mode) => {
+          const id = mode.id;
+          const values = years.map((y) => agg[y]?.[id] ?? 0);
+          const startVal = values[0];
+          const endVal = values[values.length - 1];
+          let cagr = 0;
+          if (startVal > 0 && values.length > 1) {
+            cagr = Math.pow(endVal / startVal, 1 / (values.length - 1)) - 1;
+          }
+          proj[id] = [];
+          let lastVal = endVal;
+          const lastYear = years[years.length - 1];
+          for (let i = 1; i <= horizon; i++) {
+            lastVal = lastVal * (1 + cagr);
+            proj[id].push({ year: lastYear + i, value: lastVal });
+          }
+        });
+        return proj;
+      }
+
+      function App() {
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [modes, setModes] = useState([]);
+        const [series, setSeries] = useState({});
+        const [agg, setAgg] = useState({});
+        const [selectedModes, setSelectedModes] = useState([]);
+        const [yearRange, setYearRange] = useState([2019, 2025]);
+        const chartRef = useRef(null);
+        const chartInstanceRef = useRef(null);
+
+        // Load data on mount
+        useEffect(() => {
+          async function load() {
+            try {
+              const resp = await fetch(DATA_JSON_URL);
+              if (!resp.ok) throw new Error('JSON fetch failed');
+              const json = await resp.json();
+              const { modes, series } = parseJsonStat(json);
+              const aggregated = aggregateByYear(series);
+              setModes(modes);
+              setSeries(series);
+              setAgg(aggregated);
+              setSelectedModes(modes.map((m) => m.id));
+              const years = Object.keys(aggregated)
+                .map((y) => Number(y))
+                .sort((a, b) => a - b);
+              if (years.length) setYearRange([years[0], years[years.length - 1]]);
+              setLoading(false);
+            } catch (err) {
+              try {
+                const resp2 = await fetch(DATA_CSV_URL);
+                if (!resp2.ok) throw new Error('CSV fetch failed');
+                const text = await resp2.text();
+                const { modes, series } = parseCsv(text);
+                const aggregated = aggregateByYear(series);
+                setModes(modes);
+                setSeries(series);
+                setAgg(aggregated);
+                setSelectedModes(modes.map((m) => m.id));
+                const years = Object.keys(aggregated)
+                  .map((y) => Number(y))
+                  .sort((a, b) => a - b);
+                if (years.length) setYearRange([years[0], years[years.length - 1]]);
+                setLoading(false);
+              } catch (error) {
+                setError(error.message);
+                setLoading(false);
+              }
+            }
+          }
+          load();
+        }, []);
+
+        // Recompute chart whenever dependencies change
+        useEffect(() => {
+          if (loading || !modes.length) return;
+          drawChart();
+        }, [loading, selectedModes, yearRange, agg]);
+
+        // Build and render the Chart.js line chart
+        function drawChart() {
+          const ctx = chartRef.current.getContext('2d');
+          // Destroy any existing chart
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+          // Determine years
+          const allYears = Object.keys(agg)
+            .map((y) => Number(y))
+            .sort((a, b) => a - b);
+          const [startYear, endYear] = yearRange;
+          const visibleYears = allYears.filter(
+            (y) => y >= startYear && y <= endYear,
+          );
+          // Compute projections and combined labels
+          const projections = computeProjections(agg, allYears, modes, 5);
+          const historyLabels = visibleYears.map((y) => String(y));
+          const projYearSet = new Set();
+          selectedModes.forEach((id) => {
+            projections[id].forEach((p) => {
+              projYearSet.add(String(p.year));
+            });
+          });
+          const projLabels = Array.from(projYearSet).filter(
+            (y) => !historyLabels.includes(y),
+          );
+          projLabels.sort();
+          const labels = historyLabels.concat(projLabels);
+          // Assign colours
+          const colours = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+          const datasets = [];
+          selectedModes.forEach((id, idx) => {
+            const colour = colours[idx % colours.length];
+            // historical series
+            const histData = labels.map((label) => {
+              const y = parseInt(label, 10);
+              return historyLabels.includes(label)
+                ? agg[y]?.[id] ?? null
+                : null;
+            });
+            datasets.push({
+              label: modes.find((m) => m.id === id)?.name || id,
+              data: histData,
+              borderColor: colour,
+              backgroundColor: colour,
+              tension: 0.2,
+              spanGaps: true,
+            });
+            // projection series
+            const projData = labels.map((label) => {
+              const entry = projections[id].find((p) => String(p.year) === label);
+              return entry ? entry.value : null;
+            });
+            datasets.push({
+              label: (modes.find((m) => m.id === id)?.name || id) + ' (proj)',
+              data: projData,
+              borderColor: colour,
+              backgroundColor: colour,
+              borderDash: [5, 5],
+              tension: 0.2,
+              spanGaps: true,
+            });
+          });
+          const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: 'nearest', axis: 'x', intersect: false },
+              plugins: {
+                legend: { position: 'top' },
+              },
+              scales: {
+                y: {
+                  ticks: {
+                    callback: (value) => value.toLocaleString('en-IE'),
+                  },
+                  title: {
+                    display: true,
+                    text: 'Journeys',
+                  },
+                },
+                x: {
+                  title: {
+                    display: true,
+                    text: 'Year',
+                  },
+                },
+              },
+            },
+          });
+          chartInstanceRef.current = chart;
+        }
+
+        if (loading) {
+          return React.createElement('div', { className: 'card' }, 'Loading data…');
+        }
+        if (error) {
+          return React.createElement(
+            'div',
+            { className: 'card', style: { color: 'red' } },
+            'Error: ' + error,
+          );
+        }
+        const allYears = Object.keys(agg)
+          .map((y) => Number(y))
+          .sort((a, b) => a - b);
+        const [startYear, endYear] = yearRange;
+        const yoy = computeYoY(agg, modes);
+        const summaryCards = selectedModes.map((id) => {
+          const lastYear = endYear;
+          const lastVal = agg[lastYear]?.[id] ?? null;
+          const diff = yoy[id] ?? 0;
+          const diffPct =
+            lastVal && agg[lastYear - 1]?.[id]
+              ? (diff / agg[lastYear - 1][id]) * 100
+              : 0;
+          return React.createElement(
+            'div',
+            { key: id, className: 'summary-card' },
+            React.createElement('div', { className: 'summary-title' },
+              modes.find((m) => m.id === id)?.name || id,
+            ),
+            React.createElement(
+              'div',
+              { className: 'summary-value' },
+              lastVal ? lastVal.toLocaleString('en-IE') : 'N/A',
+            ),
+            React.createElement(
+              'div',
+              {
+                className: 'summary-diff',
+                style: { color: diff >= 0 ? '#059669' : '#b91c1c' },
+              },
+              (diff >= 0 ? '+' : '') + diff.toLocaleString('en-IE') +
+                ' (' + diffPct.toFixed(1) + '%)',
+            ),
+            React.createElement('div', { style: { fontSize: '0.75rem', color: '#6b7280' } },
+              lastYear + ' vs ' + (lastYear - 1),
+            ),
+          );
+        });
+        return React.createElement(
+          'div',
+          null,
+          React.createElement('h1', null, 'Irish Public Transport Dashboard'),
+          // Filters
+          React.createElement(
+            'div',
+            { className: 'card filters' },
+            // Start year selector
+            React.createElement(
+              'div',
+              { className: 'filter-group' },
+              React.createElement('label', { htmlFor: 'startYear' }, 'Start year'),
+              React.createElement(
+                'select',
+                {
+                  id: 'startYear',
+                  value: startYear,
+                  onChange: (e) => {
+                    const newStart = Number(e.target.value);
+                    setYearRange([newStart, Math.max(newStart, endYear)]);
+                  },
+                },
+                allYears.map((y) =>
+                  React.createElement(
+                    'option',
+                    { key: y, value: y, disabled: y > endYear },
+                    y,
+                  ),
+                ),
+              ),
+            ),
+            // End year selector
+            React.createElement(
+              'div',
+              { className: 'filter-group' },
+              React.createElement('label', { htmlFor: 'endYear' }, 'End year'),
+              React.createElement(
+                'select',
+                {
+                  id: 'endYear',
+                  value: endYear,
+                  onChange: (e) => {
+                    const newEnd = Number(e.target.value);
+                    setYearRange([Math.min(newEnd, startYear), newEnd]);
+                  },
+                },
+                allYears.map((y) =>
+                  React.createElement(
+                    'option',
+                    { key: y, value: y, disabled: y < startYear },
+                    y,
+                  ),
+                ),
+              ),
+            ),
+            // Mode checkboxes
+            React.createElement(
+              'div',
+              { className: 'filter-group', style: { flex: 1 } },
+              React.createElement('span', null, 'Modes'),
+              React.createElement(
+                'div',
+                { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+                modes.map((mode) =>
+                  React.createElement(
+                    'label',
+                    { key: mode.id, style: { display: 'flex', alignItems: 'center' } },
+                    React.createElement('input', {
+                      type: 'checkbox',
+                      checked: selectedModes.includes(mode.id),
+                      onChange: () => {
+                        setSelectedModes((prev) =>
+                          prev.includes(mode.id)
+                            ? prev.filter((m) => m !== mode.id)
+                            : prev.concat(mode.id),
+                        );
+                      },
+                    }),
+                    React.createElement('span', { style: { marginLeft: '0.25rem' } }, mode.name),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Summary cards
+          React.createElement(
+            'div',
+            { className: 'summary-container' },
+            summaryCards,
+          ),
+          // Chart container
+          React.createElement(
+            'div',
+            { className: 'card' },
+            React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Annual passenger journeys'),
+            React.createElement('div', { className: 'chart-container' },
+              React.createElement('canvas', { ref: chartRef }),
+            ),
+          ),
+          // Source note
+          React.createElement(
+            'p',
+            { style: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem' } },
+            'Source: Central Statistics Office (CSO) – THA25 dataset. Projections are illustrative CAGR extrapolations.',
+          ),
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+    </script>
+  </body>
+</html>
