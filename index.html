@@ -138,9 +138,8 @@
         'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
       const DATA_CSV_URL =
         'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/CSV/1.0/en';
-      // Fallback endpoint for Luas weekly journeys (CSO table TII03).
-      const TII03_JSON_URL =
-        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/TII03/JSON-stat/2.0/en';
+      // No fallback endpoint needed for Luas.  The THA25 dataset contains
+      // Luas weekly passenger journeys, so we rely solely on THA25.
 
       /**
        * Parse the JSON‑stat representation into a structure of modes and
@@ -200,66 +199,10 @@
       }
 
       /**
-       * Parse the CSO TII03 "Passenger journeys by Luas per week" dataset (JSON-stat 2.0).
-       * Returns an array of objects {year, week, value} for the "All Luas lines" series.
+       * The THA25 dataset includes weekly Luas passenger journeys.  We do not
+       * implement an external fallback for Luas.  If the Luas mode is
+       * absent from THA25, it will simply not be displayed.
        */
-      function parseTII03Weekly(json) {
-        const dim = json.dataset.dimension;
-        const weekIndex = dim.Week.category.index;
-        const lineIndex = dim.Line.category.index;
-        const lineLabels = dim.Line.category.label;
-        // Determine index of the "all" lines series (fallback to first entry).
-        let allPos = 0;
-        const lineKeys = Object.keys(lineIndex);
-        for (let i = 0; i < lineKeys.length; i++) {
-          const key = lineKeys[i];
-          const name = lineLabels[key] || '';
-          if (name.toLowerCase().includes('all')) {
-            allPos = i;
-            break;
-          }
-        }
-        const values = json.dataset.value;
-        const perLineCount = lineKeys.length;
-        const weekKeys = Object.keys(weekIndex);
-        const out = [];
-        for (let i = 0; i < weekKeys.length; i++) {
-          const key = weekKeys[i]; // e.g. "2024-W52"
-          const year = parseInt(key.slice(0, 4), 10);
-          const match = key.match(/W(\d+)/i);
-          const wk = match ? parseInt(match[1], 10) : 1;
-          const val = values[i * perLineCount + allPos];
-          if (val != null) {
-            out.push({ year, week: wk, value: val });
-          }
-        }
-        return out;
-      }
-
-      /**
-       * Ensure that a Luas series exists in the given series map.  If THA25 does not
-       * include a Luas mode, this function fetches the TII03 dataset and inserts
-       * the weekly "All Luas lines" series under the key "Luas".  Returns the
-       * augmented series map.
-       */
-      async function ensureLuasSeries(seriesByMode) {
-        const hasLuas = !!seriesByMode['Luas'] || !!seriesByMode['LUAS'];
-        if (hasLuas) return seriesByMode;
-        try {
-          const json = await fetchJsonStat(TII03_JSON_URL);
-          const weekly = parseTII03Weekly(json);
-          if (weekly && weekly.length) {
-            // Convert to THA25-style week identifiers (e.g., 2024W01)
-            seriesByMode['Luas'] = weekly.map(({ year, week, value }) => {
-              const wkStr = String(week).padStart(2, '0');
-              return { week: `${year}W${wkStr}`, value };
-            });
-          }
-        } catch (err) {
-          console.warn('Luas fallback failed:', err);
-        }
-        return seriesByMode;
-      }
 
       /**
        * Aggregate weekly series into annual totals per mode.  Missing values
@@ -447,13 +390,8 @@
               if (!resp.ok) throw new Error('JSON fetch failed');
               const json = await resp.json();
               let { modes, series } = parseJsonStat(json);
-              // ensure Luas series exists via fallback if necessary
-              series = await ensureLuasSeries(series);
-              // include Luas in modes list if added
-              let updatedModes = modes.slice();
-              if (series['Luas'] && !updatedModes.some((m) => m.id === 'Luas' || m.name === 'Luas')) {
-                updatedModes.push({ id: 'Luas', name: 'Luas' });
-              }
+              // The THA25 dataset includes Luas; no fallback or additional modes required
+              const updatedModes = modes;
               const aggregated = aggregateByYear(series);
               // derive week metadata
               const mwByYear = computeMaxWeekByYear(series);
@@ -473,16 +411,12 @@
               setLoading(false);
             } catch (err) {
               try {
-                const resp2 = await fetch(DATA_CSV_URL);
+              const resp2 = await fetch(DATA_CSV_URL);
                 if (!resp2.ok) throw new Error('CSV fetch failed');
                 const text = await resp2.text();
                 let { modes, series } = parseCsv(text);
-                // ensure Luas series exists via fallback
-                series = await ensureLuasSeries(series);
-                let updatedModes = modes.slice();
-                if (series['Luas'] && !updatedModes.some((m) => m.id === 'Luas' || m.name === 'Luas')) {
-                  updatedModes.push({ id: 'Luas', name: 'Luas' });
-                }
+                // The THA25 dataset includes Luas; no fallback or additional modes required
+                const updatedModes = modes;
                 const aggregated = aggregateByYear(series);
                 const mwByYear = computeMaxWeekByYear(series);
                 const weekVals = Object.values(mwByYear);
@@ -962,7 +896,7 @@
               React.createElement('canvas', { id: 'luasChart' }),
             ),
             React.createElement('small', { style: { fontSize: '0.75rem', color: '#6b7280' } },
-              'Luas source: CSO THA25; fallback: CSO TII03 (weekly, from TII).',
+              'Luas source: CSO THA25 dataset.',
             ),
           ),
           // Source note
