@@ -74,9 +74,58 @@
         position: relative;
         height: 400px;
       }
+      /* Gallery for mode images */
+      .mode-gallery {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.75rem;
+        margin: 1rem 0;
+      }
+      @media (max-width: 900px) {
+        .mode-gallery {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .mode-gallery figure {
+        margin: 0;
+        background: #ffffff;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      }
+      .mode-gallery img {
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+        display: block;
+      }
+      .mode-gallery figcaption {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        color: #555555;
+      }
     </style>
   </head>
   <body>
+    <!-- Image gallery for each transport mode -->
+    <div class="mode-gallery">
+      <figure>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/8/80/LUAS_3000_class_tram_on_O%27Connell_Street%2C_Dublin_%28cropped%29.jpg" alt="Luas tram in Dublin" />
+        <figcaption>Luas — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
+      </figure>
+      <figure>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/1/18/Dublin_Bus_SG_class.jpg" alt="Dublin Bus SG class" />
+        <figcaption>Dublin Bus — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
+      </figure>
+      <figure>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/9/9a/IE_22000_Class_ICR.jpg" alt="Iarnród Éireann 22000 Class" />
+        <figcaption>Iarnród Éireann — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
+      </figure>
+      <figure>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/0/0f/Bus_Eireann_Cork.jpg" alt="Bus Éireann coach" />
+        <figcaption>Bus Éireann — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
+      </figure>
+    </div>
     <div id="app"></div>
     <script type="text/javascript">
       // Use React from the global scope.  These variables are provided by the
@@ -89,6 +138,9 @@
         'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
       const DATA_CSV_URL =
         'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/CSV/1.0/en';
+      // Fallback endpoint for Luas weekly journeys (CSO table TII03).
+      const TII03_JSON_URL =
+        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/TII03/JSON-stat/2.0/en';
 
       /**
        * Parse the JSON‑stat representation into a structure of modes and
@@ -136,6 +188,77 @@
         }
         const modes = Array.from(modeSet).map((id) => ({ id, name: id }));
         return { modes, series };
+      }
+
+      /**
+       * Fetch a JSON-stat dataset from the given URL and return the parsed JSON.
+       */
+      async function fetchJsonStat(url) {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('Failed to fetch ' + url);
+        return resp.json();
+      }
+
+      /**
+       * Parse the CSO TII03 "Passenger journeys by Luas per week" dataset (JSON-stat 2.0).
+       * Returns an array of objects {year, week, value} for the "All Luas lines" series.
+       */
+      function parseTII03Weekly(json) {
+        const dim = json.dataset.dimension;
+        const weekIndex = dim.Week.category.index;
+        const lineIndex = dim.Line.category.index;
+        const lineLabels = dim.Line.category.label;
+        // Determine index of the "all" lines series (fallback to first entry).
+        let allPos = 0;
+        const lineKeys = Object.keys(lineIndex);
+        for (let i = 0; i < lineKeys.length; i++) {
+          const key = lineKeys[i];
+          const name = lineLabels[key] || '';
+          if (name.toLowerCase().includes('all')) {
+            allPos = i;
+            break;
+          }
+        }
+        const values = json.dataset.value;
+        const perLineCount = lineKeys.length;
+        const weekKeys = Object.keys(weekIndex);
+        const out = [];
+        for (let i = 0; i < weekKeys.length; i++) {
+          const key = weekKeys[i]; // e.g. "2024-W52"
+          const year = parseInt(key.slice(0, 4), 10);
+          const match = key.match(/W(\d+)/i);
+          const wk = match ? parseInt(match[1], 10) : 1;
+          const val = values[i * perLineCount + allPos];
+          if (val != null) {
+            out.push({ year, week: wk, value: val });
+          }
+        }
+        return out;
+      }
+
+      /**
+       * Ensure that a Luas series exists in the given series map.  If THA25 does not
+       * include a Luas mode, this function fetches the TII03 dataset and inserts
+       * the weekly "All Luas lines" series under the key "Luas".  Returns the
+       * augmented series map.
+       */
+      async function ensureLuasSeries(seriesByMode) {
+        const hasLuas = !!seriesByMode['Luas'] || !!seriesByMode['LUAS'];
+        if (hasLuas) return seriesByMode;
+        try {
+          const json = await fetchJsonStat(TII03_JSON_URL);
+          const weekly = parseTII03Weekly(json);
+          if (weekly && weekly.length) {
+            // Convert to THA25-style week identifiers (e.g., 2024W01)
+            seriesByMode['Luas'] = weekly.map(({ year, week, value }) => {
+              const wkStr = String(week).padStart(2, '0');
+              return { week: `${year}W${wkStr}`, value };
+            });
+          }
+        } catch (err) {
+          console.warn('Luas fallback failed:', err);
+        }
+        return seriesByMode;
       }
 
       /**
@@ -304,7 +427,12 @@
         const [series, setSeries] = useState({});
         const [agg, setAgg] = useState({});
         const [selectedModes, setSelectedModes] = useState([]);
-        const [yearRange, setYearRange] = useState([2018, 2024]);
+        const [yearRange, setYearRange] = useState([2019, 2025]);
+        // Week range selection and week metadata.  These are
+        // initialised after the dataset loads.  `weekRange` holds
+        // [startWeek, endWeek] inclusive, `maxWeek` is the highest
+        // week number observed across all years, and `maxWeekByYear`
+        // maps each year to its own maximum week number.
         const [weekRange, setWeekRange] = useState([1, 52]);
         const [maxWeek, setMaxWeek] = useState(52);
         const [maxWeekByYear, setMaxWeekByYear] = useState({});
@@ -315,110 +443,150 @@
         useEffect(() => {
           async function load() {
             try {
-              // First attempt JSON
-              const res = await fetch(DATA_JSON_URL);
-              if (!res.ok) throw new Error('JSON fetch error');
-              const data = await res.json();
-              const parsed = parseJsonStat(data);
-              setModes(parsed.modes);
-              setSeries(parsed.series);
-              const aggregated = aggregateByYear(parsed.series);
-              setAgg(aggregated);
-              // Preselect all modes by default
-              setSelectedModes(parsed.modes.map((m) => m.id));
-              // Compute week metadata
-              const mwByYear = computeMaxWeekByYear(parsed.series);
-              const weeks = Object.values(mwByYear);
-              const overallMax = weeks.length ? Math.max(...weeks) : 52;
+              const resp = await fetch(DATA_JSON_URL);
+              if (!resp.ok) throw new Error('JSON fetch failed');
+              const json = await resp.json();
+              let { modes, series } = parseJsonStat(json);
+              // ensure Luas series exists via fallback if necessary
+              series = await ensureLuasSeries(series);
+              // include Luas in modes list if added
+              let updatedModes = modes.slice();
+              if (series['Luas'] && !updatedModes.some((m) => m.id === 'Luas' || m.name === 'Luas')) {
+                updatedModes.push({ id: 'Luas', name: 'Luas' });
+              }
+              const aggregated = aggregateByYear(series);
+              // derive week metadata
+              const mwByYear = computeMaxWeekByYear(series);
+              const weekVals = Object.values(mwByYear);
+              const overallMax = weekVals.length ? Math.max(...weekVals) : 52;
               setMaxWeekByYear(mwByYear);
               setMaxWeek(overallMax);
               setWeekRange([1, overallMax]);
-            } catch (errJson) {
-              console.error(errJson);
+              setModes(updatedModes);
+              setSeries(series);
+              setAgg(aggregated);
+              setSelectedModes(updatedModes.map((m) => m.id));
+              const years = Object.keys(aggregated)
+                .map((y) => Number(y))
+                .sort((a, b) => a - b);
+              if (years.length) setYearRange([years[0], years[years.length - 1]]);
+              setLoading(false);
+            } catch (err) {
               try {
-                const csvRes = await fetch(DATA_CSV_URL);
-                if (!csvRes.ok) throw new Error('CSV fetch error');
-                const csvText = await csvRes.text();
-                const parsed = parseCsv(csvText);
-                setModes(parsed.modes);
-                setSeries(parsed.series);
-                const aggregated = aggregateByYear(parsed.series);
-                setAgg(aggregated);
-                setSelectedModes(parsed.modes.map((m) => m.id));
-                // Compute week metadata for CSV
-                const mwByYear = computeMaxWeekByYear(parsed.series);
-                const weeks = Object.values(mwByYear);
-                const overallMax = weeks.length ? Math.max(...weeks) : 52;
+                const resp2 = await fetch(DATA_CSV_URL);
+                if (!resp2.ok) throw new Error('CSV fetch failed');
+                const text = await resp2.text();
+                let { modes, series } = parseCsv(text);
+                // ensure Luas series exists via fallback
+                series = await ensureLuasSeries(series);
+                let updatedModes = modes.slice();
+                if (series['Luas'] && !updatedModes.some((m) => m.id === 'Luas' || m.name === 'Luas')) {
+                  updatedModes.push({ id: 'Luas', name: 'Luas' });
+                }
+                const aggregated = aggregateByYear(series);
+                const mwByYear = computeMaxWeekByYear(series);
+                const weekVals = Object.values(mwByYear);
+                const overallMax = weekVals.length ? Math.max(...weekVals) : 52;
                 setMaxWeekByYear(mwByYear);
                 setMaxWeek(overallMax);
                 setWeekRange([1, overallMax]);
-              } catch (errCsv) {
-                console.error(errCsv);
-                setError('Failed to load data');
+                setModes(updatedModes);
+                setSeries(series);
+                setAgg(aggregated);
+                setSelectedModes(updatedModes.map((m) => m.id));
+                const years = Object.keys(aggregated)
+                  .map((y) => Number(y))
+                  .sort((a, b) => a - b);
+                if (years.length) setYearRange([years[0], years[years.length - 1]]);
+                setLoading(false);
+              } catch (error) {
+                setError(error.message);
+                setLoading(false);
               }
-            } finally {
-              setLoading(false);
             }
           }
           load();
         }, []);
 
-        // Redraw chart when data or filters change
+        // Recompute chart whenever dependencies change
         useEffect(() => {
-          if (loading) return;
+          if (loading || !modes.length) return;
           drawChart();
-        }, [loading, selectedModes, yearRange, weekRange, series, maxWeekByYear]);
+        }, [loading, selectedModes, yearRange, weekRange, agg, series, maxWeekByYear]);
 
+        // Build and render the Chart.js line chart.  This function
+        // derives year labels from the full aggregator, aggregates
+        // weekly data according to the selected week range, determines
+        // whether the last year is partial, computes projections, and
+        // then renders historical and projection lines for each selected
+        // mode.  Projections use a CAGR based on full years only when
+        // the final year is incomplete.
         function drawChart() {
           const ctx = chartRef.current.getContext('2d');
+          // Destroy any existing chart to avoid memory leaks
           if (chartInstanceRef.current) {
             chartInstanceRef.current.destroy();
           }
-          // Filter series by selected modes
-          const filteredSeries = {};
-          selectedModes.forEach((id) => {
-            filteredSeries[id] = series[id];
-          });
-          // Aggregate by year within week range
-          const aggRange = aggregateByYearWeekRange(filteredSeries, weekRange[0], weekRange[1]);
-          // Determine visible years
-          const years = Object.keys(aggRange)
+          // Determine all years from the full aggregator (complete data)
+          const allYears = Object.keys(agg)
             .map((y) => Number(y))
-            .sort((a, b) => a - b)
-            .filter((y) => y >= yearRange[0] && y <= yearRange[1]);
-          // Determine if last year is partial (weekRange[1] < maxWeekByYear[year])
-          const lastYear = years[years.length - 1];
-          const isPartial = weekRange[1] < (maxWeekByYear[lastYear] || weekRange[1]);
-          // Compute projections using adjusted CAGR
-          const projections = computeProjectionsAdjusted(aggRange, years, modes.filter((m) => selectedModes.includes(m.id)), 5, isPartial);
-          // Prepare data
-          const labels = years.concat(Array.from({ length: 5 }, (_, i) => lastYear + i + 1)).map(String);
-          const datasets = [];
-          // Generate colours for lines
-          const colours = ['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#e11d48'];
-          let colourIndex = 0;
-          // Actual data
+            .sort((a, b) => a - b);
+          const [startYear, endYear] = yearRange;
+          const visibleYears = allYears.filter((y) => y >= startYear && y <= endYear);
+          // Aggregate weekly data for the current week range
+          const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
+          // Determine if the last visible year is partial based on the
+          // maximum week observed for that year
+          let isPartial = false;
+          if (visibleYears.length) {
+            const endYr = visibleYears[visibleYears.length - 1];
+            const maxWk = maxWeekByYear[endYr] || maxWeek;
+            if (weekRange[1] < maxWk) isPartial = true;
+          }
+          // Compute projections using the filtered aggregator and CAGR
+          const projections = computeProjectionsAdjusted(
+            filteredAgg,
+            allYears,
+            modes,
+            5,
+            isPartial,
+          );
+          // Construct x-axis labels: history years plus projection years
+          const historyLabels = visibleYears.map((y) => String(y));
+          const projYearSet = new Set();
           selectedModes.forEach((id) => {
-            const colour = colours[colourIndex % colours.length];
-            colourIndex++;
-            const data = labels.map((label) => {
+            (projections[id] || []).forEach((p) => {
+              projYearSet.add(String(p.year));
+            });
+          });
+          const projLabels = Array.from(projYearSet).filter(
+            (y) => !historyLabels.includes(y),
+          );
+          projLabels.sort();
+          const labels = historyLabels.concat(projLabels);
+          // Colour palette for multiple modes
+          const colours = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+          const datasets = [];
+          selectedModes.forEach((id, idx) => {
+            const colour = colours[idx % colours.length];
+            // Historical data: for each label, if it's a history year, use the
+            // aggregated value within the week range; otherwise null
+            const histData = labels.map((label) => {
               const y = parseInt(label, 10);
-              return aggRange[y]?.[id] ?? null;
+              return historyLabels.includes(label)
+                ? filteredAgg[y]?.[id] ?? null
+                : null;
             });
             datasets.push({
               label: modes.find((m) => m.id === id)?.name || id,
-              data: data,
+              data: histData,
               borderColor: colour,
               backgroundColor: colour,
               tension: 0.2,
               spanGaps: true,
             });
-          });
-          // Projection data: dashed lines
-          selectedModes.forEach((id) => {
-            const colour = colours[colourIndex % colours.length];
-            colourIndex++;
-            // For each label, if there's a projection entry for that year, include its value; otherwise null
+            // Projection data: for each label, if there's a projection entry
+            // for that year, include its value; otherwise null
             const projData = labels.map((label) => {
               const entries = projections[id] || [];
               const match = entries.find((p) => String(p.year) === label);
@@ -465,6 +633,102 @@
             },
           });
           chartInstanceRef.current = chart;
+          // Draw the Luas weekly journeys panel whenever the main chart is drawn.
+          drawLuasPanel(series, weekRange, maxWeekByYear);
+        }
+
+        /**
+         * Compute a year-to-date sum of weekly values up to a given week.
+         * Accepts an array of objects with {year, week, value}.
+         */
+        function ytdSum(arr, year, maxWk) {
+          return arr
+            .filter((d) => d.year === year && d.week <= maxWk)
+            .reduce((sum, d) => sum + (d.value || 0), 0);
+        }
+
+        /**
+         * Draw the Luas weekly journeys panel.  If a Luas series is present
+         * in the data, this function populates KPI values and renders a line
+         * chart of weekly journeys in the #luasChart canvas.  It uses
+         * maxWeekByYear to compute year-to-date and year-on-year metrics.
+         */
+        function drawLuasPanel(seriesByMode, weekRange, maxWeekByYear) {
+          const luasSeries = seriesByMode['Luas'] || seriesByMode['LUAS'];
+          if (!luasSeries || !luasSeries.length) return;
+          // Convert week identifiers into {year, week, value}
+          const parsed = luasSeries.map(({ week, value }) => {
+            const { year, week: wk } = parseWeek(week);
+            return { year, week: wk, value };
+          });
+          // Sort for consistent labels
+          parsed.sort((a, b) => a.year - b.year || a.week - b.week);
+          const labels = parsed.map((d) => `${d.year}W${String(d.week).padStart(2, '0')}`);
+          const data = parsed.map((d) => d.value);
+          // KPIs: latest value, YTD and YOY based on maxWeekByYear
+          const latest = parsed[parsed.length - 1];
+          const elLatest = document.getElementById('luas-latest');
+          const elYtd = document.getElementById('luas-ytd');
+          const elYoy = document.getElementById('luas-yoy');
+          if (elLatest) {
+            elLatest.textContent = latest ? latest.value.toLocaleString('en-IE') : '—';
+          }
+          // Determine current and previous year
+          const yearsArr = Array.from(new Set(parsed.map((d) => d.year))).sort((a, b) => a - b);
+          const currentYear = yearsArr[yearsArr.length - 1];
+          const prevYear = yearsArr[yearsArr.length - 2] || currentYear - 1;
+          const maxWkCurr = maxWeekByYear[currentYear] || 52;
+          const maxWkPrev = maxWeekByYear[prevYear] || 52;
+          const ytdCurr = ytdSum(parsed, currentYear, maxWkCurr);
+          const ytdPrev = ytdSum(parsed, prevYear, Math.min(maxWkCurr, maxWkPrev));
+          if (elYtd) {
+            elYtd.textContent = ytdCurr.toLocaleString('en-IE');
+          }
+          if (elYoy) {
+            const diff = ytdPrev ? ((ytdCurr - ytdPrev) / ytdPrev) * 100 : 0;
+            elYoy.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%';
+          }
+          // Render chart
+          const canvas = document.getElementById('luasChart');
+          if (!canvas) return;
+          const ctx2 = canvas.getContext('2d');
+          if (window._luasChart) {
+            window._luasChart.destroy();
+          }
+          window._luasChart = new Chart(ctx2, {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: 'Luas weekly journeys',
+                  data,
+                  tension: 0.25,
+                  borderColor: '#e11d48',
+                  backgroundColor: '#fef2f2',
+                  borderWidth: 2,
+                  pointRadius: 0,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: {
+                  ticks: {
+                    callback: (val) => val.toLocaleString('en-IE'),
+                  },
+                  title: { display: true, text: 'Journeys' },
+                },
+                x: {
+                  ticks: { maxTicksLimit: 12 },
+                  title: { display: true, text: 'Week' },
+                },
+              },
+              plugins: { legend: { display: false } },
+            },
+          });
         }
 
         if (loading) {
@@ -665,6 +929,40 @@
             React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Annual passenger journeys'),
             React.createElement('div', { className: 'chart-container' },
               React.createElement('canvas', { ref: chartRef }),
+            ),
+          ),
+          // Luas panel
+          React.createElement(
+            'div',
+            { className: 'card' },
+            React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Luas — Weekly journeys'),
+            React.createElement(
+              'div',
+              { className: 'summary-container' },
+              React.createElement(
+                'div',
+                { className: 'summary-card' },
+                React.createElement('div', { className: 'summary-title' }, 'Latest week'),
+                React.createElement('div', { id: 'luas-latest', className: 'summary-value' }, '—'),
+              ),
+              React.createElement(
+                'div',
+                { className: 'summary-card' },
+                React.createElement('div', { className: 'summary-title' }, 'YTD'),
+                React.createElement('div', { id: 'luas-ytd', className: 'summary-value' }, '—'),
+              ),
+              React.createElement(
+                'div',
+                { className: 'summary-card' },
+                React.createElement('div', { className: 'summary-title' }, 'YoY'),
+                React.createElement('div', { id: 'luas-yoy', className: 'summary-value' }, '—'),
+              ),
+            ),
+            React.createElement('div', { style: { height: '220px' } },
+              React.createElement('canvas', { id: 'luasChart' }),
+            ),
+            React.createElement('small', { style: { fontSize: '0.75rem', color: '#6b7280' } },
+              'Luas source: CSO THA25; fallback: CSO TII03 (weekly, from TII).',
             ),
           ),
           // Source note
