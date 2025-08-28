@@ -4,19 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Irish Public Transport Dashboard</title>
-    <!-- Pull in React and ReactDOM from a CDN.  These UMD builds are
-         sufficient for a small single‑page app without a build step. -->
+    <!-- React and ReactDOM from CDN for a lightweight single page app -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- PapaParse for CSV parsing and Chart.js for visualisation -->
+    <!-- PapaParse for CSV parsing and Chart.js for charts -->
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-      /* Simple styles to make the dashboard readable.  You can tweak these
-         values or replace them entirely with your own styles if desired. */
+      /* Basic styles for layout */
       body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-          Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         background-color: #f3f4f6;
         margin: 0;
         padding: 1rem;
@@ -24,7 +22,7 @@
       }
       h1 {
         text-align: center;
-        font-size: 1.75rem;
+        font-size: 1.5rem;
         margin-bottom: 1rem;
       }
       .card {
@@ -74,841 +72,469 @@
         position: relative;
         height: 400px;
       }
-      /* Gallery for mode images */
-      .mode-gallery {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 0.75rem;
-        margin: 1rem 0;
-      }
-      @media (max-width: 900px) {
-        .mode-gallery {
-          grid-template-columns: repeat(2, 1fr);
-        }
-      }
-      .mode-gallery figure {
-        margin: 0;
-        background: #ffffff;
-        border-radius: 0.5rem;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-      }
-      .mode-gallery img {
-        width: 100%;
-        height: 150px;
-        object-fit: cover;
-        display: block;
-      }
-      .mode-gallery figcaption {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.875rem;
-        color: #555555;
-      }
     </style>
   </head>
   <body>
-    <!-- Image gallery for each transport mode -->
-    <div class="mode-gallery">
-      <figure>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/8/80/LUAS_3000_class_tram_on_O%27Connell_Street%2C_Dublin_%28cropped%29.jpg" alt="Luas tram in Dublin" />
-        <figcaption>Luas — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
-      </figure>
-      <figure>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/1/18/Dublin_Bus_SG_class.jpg" alt="Dublin Bus SG class" />
-        <figcaption>Dublin Bus — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
-      </figure>
-      <figure>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/9/9a/IE_22000_Class_ICR.jpg" alt="Iarnród Éireann 22000 Class" />
-        <figcaption>Iarnród Éireann — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
-      </figure>
-      <figure>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/0/0f/Bus_Eireann_Cork.jpg" alt="Bus Éireann coach" />
-        <figcaption>Bus Éireann — Photo: Wikimedia Commons (CC BY-SA)</figcaption>
-      </figure>
-    </div>
     <div id="app"></div>
     <script type="text/javascript">
-      // Use React from the global scope.  These variables are provided by the
-      // unpkg CDN scripts loaded above.
-      const { useState, useEffect, useRef } = React;
+      (function () {
+        const { useState, useEffect, useRef } = React;
+        // Data endpoints from the CSO PxStat API
+        const DATA_JSON_URL =
+          'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
+        // Use a local CSV file stored alongside index.html. When served via
+        // GitHub Pages the CSV is hosted under the same origin so we avoid
+        // cross‑origin issues. See THA25.csv in the repo for the dataset.
+        const DATA_CSV_URL = 'THA25.csv';
 
-      // Endpoints for the THA25 dataset.  We try JSON first because it
-      // includes descriptive labels; if that fails we fall back to CSV.
-      const DATA_JSON_URL =
-        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
-      const DATA_CSV_URL =
-        'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/CSV/1.0/en';
-      // No fallback endpoint needed for Luas.  The THA25 dataset contains
-      // Luas weekly passenger journeys, so we rely solely on THA25.
-
-      /**
-       * Parse the JSON‑stat representation into a structure of modes and
-       * weekly series.  Returns an object with a `modes` array (id, name)
-       * and a `series` map keyed by mode id to arrays of {week, value}.
-       */
-      function parseJsonStat(json) {
-        const dimTime = json.dimension['TLIST(W1)'].category.index;
-        const modeIds = json.dimension['C03935V04687'].category.index;
-        const modeLabels = json.dimension['C03935V04687'].category.label;
-        const values = json.value;
-        const result = {};
-        let idx = 0;
-        for (let t = 0; t < dimTime.length; t++) {
-          const weekKey = dimTime[t];
-          for (let m = 0; m < modeIds.length; m++) {
-            const modeId = modeIds[m];
-            const value = values[idx++];
-            if (!result[modeId]) result[modeId] = [];
-            result[modeId].push({ week: weekKey, value: value === null ? null : Number(value) });
+        // Parse JSON-stat response into mode metadata and weekly series
+        function parseJsonStat(json) {
+          const dimTime = json.dimension['TLIST(W1)'].category.index;
+          const modeIds = json.dimension['C03935V04687'].category.index;
+          const modeLabels = json.dimension['C03935V04687'].category.label;
+          const values = json.value;
+          const series = {};
+          let idx = 0;
+          for (let t = 0; t < dimTime.length; t++) {
+            const weekKey = dimTime[t];
+            for (let m = 0; m < modeIds.length; m++) {
+              const modeId = modeIds[m];
+              const value = values[idx++];
+              if (!series[modeId]) series[modeId] = [];
+              series[modeId].push({ week: weekKey, value: value === null ? null : Number(value) });
+            }
           }
+          const modes = modeIds.map((id) => ({ id, name: modeLabels[id] }));
+          return { modes, series };
         }
-        const modes = modeIds.map((id) => ({ id, name: modeLabels[id] }));
-        return { modes, series: result };
-      }
 
-      /**
-       * Parse CSV fallback into the same structure as parseJsonStat.  Since
-       * the CSV format may not include descriptive labels for modes, the
-       * identifiers are used as names.
-       */
-      function parseCsv(text) {
-        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-        const series = {};
-        const modeSet = new Set();
-        for (const row of parsed.data) {
-          const mode = row['C03935V04687'] || row['MODE'] || row['C03935V04687 '] || row['C03935V04687'];
-          const week = row['TLIST(W1)'] || row['WEEK'] || row['TLIST(W1) '];
-          const valStr = row['value'] || row['VALUE'] || row['Observation'];
-          const value = valStr === undefined || valStr === '' ? null : Number(valStr);
-          if (!mode || !week) continue;
-          modeSet.add(mode);
-          if (!series[mode]) series[mode] = [];
-          series[mode].push({ week, value: isNaN(value) ? null : value });
+        // Parse CSV fallback into same structure as parseJsonStat
+        function parseCsv(text) {
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          const series = {};
+          const modeSet = new Set();
+          for (const row of parsed.data) {
+            const mode = row['C03935V04687'] || row['MODE'] || row['C03935V04687 '] || row['C03935V04687'];
+            const week = row['TLIST(W1)'] || row['WEEK'] || row['TLIST(W1) '];
+            const valStr = row['value'] || row['VALUE'] || row['Observation'];
+            const value = valStr === undefined || valStr === '' ? null : Number(valStr);
+            if (!mode || !week) continue;
+            modeSet.add(mode);
+            if (!series[mode]) series[mode] = [];
+            series[mode].push({ week, value: isNaN(value) ? null : value });
+          }
+          const modes = Array.from(modeSet).map((id) => ({ id, name: id }));
+          return { modes, series };
         }
-        const modes = Array.from(modeSet).map((id) => ({ id, name: id }));
-        return { modes, series };
-      }
 
-      /**
-       * Fetch a JSON-stat dataset from the given URL and return the parsed JSON.
-       */
-      async function fetchJsonStat(url) {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error('Failed to fetch ' + url);
-        return resp.json();
-      }
+        // Parse a week identifier like 2019W01 into numeric year and week
+        function parseWeek(weekId) {
+          if (!weekId || typeof weekId !== 'string' || weekId.length < 6) {
+            return { year: 0, week: 0 };
+          }
+          const yearPart = weekId.slice(0, 4);
+          const weekPart = weekId.slice(5);
+          const year = parseInt(yearPart, 10);
+          const weekStr = weekPart.replace(/^0+/, '') || '0';
+          const week = parseInt(weekStr, 10);
+          if (isNaN(year) || isNaN(week)) return { year: 0, week: 0 };
+          return { year, week };
+        }
 
-      /**
-       * The THA25 dataset includes weekly Luas passenger journeys.  We do not
-       * implement an external fallback for Luas.  If the Luas mode is
-       * absent from THA25, it will simply not be displayed.
-       */
-
-      /**
-       * Aggregate weekly series into annual totals per mode.  Missing values
-       * are ignored when summing.
-       */
-      function aggregateByYear(series) {
-        const agg = {};
-        Object.keys(series).forEach((mode) => {
-          series[mode].forEach(({ week, value }) => {
-            if (value === null || isNaN(value)) return;
-            const year = parseInt(week.slice(0, 4), 10);
-            if (!agg[year]) agg[year] = {};
-            if (!agg[year][mode]) agg[year][mode] = 0;
-            agg[year][mode] += value;
+        // Compute maximum week observed for each year
+        function computeMaxWeekByYear(series) {
+          const maxWeeks = {};
+          Object.keys(series).forEach((mode) => {
+            series[mode].forEach(({ week }) => {
+              const { year, week: wk } = parseWeek(week);
+              if (!year || !wk) return;
+              if (!maxWeeks[year] || wk > maxWeeks[year]) {
+                maxWeeks[year] = wk;
+              }
+            });
           });
-        });
-        return agg;
-      }
-
-      /**
-       * Compute year‑on‑year differences for each mode.
-       */
-      function computeYoY(agg, modes) {
-        const years = Object.keys(agg)
-          .map((y) => Number(y))
-          .sort((a, b) => a - b);
-        const diff = {};
-        if (years.length < 2) return diff;
-        const last = years[years.length - 1];
-        const prev = years[years.length - 2];
-        modes.forEach((mode) => {
-          const id = mode.id;
-          const current = agg[last]?.[id] ?? 0;
-          const previous = agg[prev]?.[id] ?? 0;
-          diff[id] = current - previous;
-        });
-        return diff;
-      }
-
-      /**
-       * Compute CAGR projections for each mode for a fixed horizon of
-       * years beyond the last available year.
-       */
-      function computeProjections(agg, years, modes, horizon = 5) {
-        const proj = {};
-        modes.forEach((mode) => {
-          const id = mode.id;
-          const values = years.map((y) => agg[y]?.[id] ?? 0);
-          const startVal = values[0];
-          const endVal = values[values.length - 1];
-          let cagr = 0;
-          if (startVal > 0 && values.length > 1) {
-            cagr = Math.pow(endVal / startVal, 1 / (values.length - 1)) - 1;
-          }
-          proj[id] = [];
-          let lastVal = endVal;
-          const lastYear = years[years.length - 1];
-          for (let i = 1; i <= horizon; i++) {
-            lastVal = lastVal * (1 + cagr);
-            proj[id].push({ year: lastYear + i, value: lastVal });
-          }
-        });
-        return proj;
-      }
-
-      /**
-       * Parse a week identifier such as "2019W01" into a numeric year and
-       * week number.  Leading zeros on the week component are stripped.
-       * Returns an object with `year` and `week` properties.  Invalid
-       * inputs yield zeros.
-       */
-      function parseWeek(weekId) {
-        if (!weekId || typeof weekId !== 'string' || weekId.length < 6) {
-          return { year: 0, week: 0 };
+          return maxWeeks;
         }
-        const yearPart = weekId.slice(0, 4);
-        const weekPart = weekId.slice(5); // skip 'W'
-        const year = parseInt(yearPart, 10);
-        const weekStr = weekPart.replace(/^0+/, '') || '0';
-        const week = parseInt(weekStr, 10);
-        if (isNaN(year) || isNaN(week)) return { year: 0, week: 0 };
-        return { year, week };
-      }
 
-      /**
-       * Determine the maximum observed week number for each year in the
-       * dataset.  The series object maps mode IDs to arrays of weekly
-       * observations.  Returns an object keyed by year with the highest
-       * week number seen for that year.
-       */
-      function computeMaxWeekByYear(series) {
-        const maxWeeks = {};
-        Object.keys(series).forEach((mode) => {
-          series[mode].forEach(({ week }) => {
-            const { year, week: wk } = parseWeek(week);
-            if (!year || !wk) return;
-            if (!maxWeeks[year] || wk > maxWeeks[year]) {
-              maxWeeks[year] = wk;
+        // Aggregate weekly series into annual totals for all weeks
+        function aggregateByYear(series) {
+          const agg = {};
+          Object.keys(series).forEach((mode) => {
+            series[mode].forEach(({ week, value }) => {
+              if (value === null || isNaN(value)) return;
+              const year = parseInt(week.slice(0, 4), 10);
+              if (!agg[year]) agg[year] = {};
+              if (!agg[year][mode]) agg[year][mode] = 0;
+              agg[year][mode] += value;
+            });
+          });
+          return agg;
+        }
+
+        // Aggregate weekly series within a given week range [startWeek, endWeek]
+        function aggregateByYearWeekRange(series, startWeek, endWeek) {
+          const agg = {};
+          Object.keys(series).forEach((mode) => {
+            series[mode].forEach(({ week, value }) => {
+              if (value === null || isNaN(value)) return;
+              const { year, week: wk } = parseWeek(week);
+              if (!year || !wk) return;
+              if (wk < startWeek || wk > endWeek) return;
+              if (!agg[year]) agg[year] = {};
+              if (!agg[year][mode]) agg[year][mode] = 0;
+              agg[year][mode] += value;
+            });
+          });
+          return agg;
+        }
+
+        // Compute CAGR-based projections with option to exclude the last year if partial
+        function computeProjectionsAdjusted(agg, years, modes, horizon = 5, excludeLast) {
+          const projections = {};
+          if (!years || years.length === 0) return projections;
+          const lastIndex = years.length - 1;
+          const lastFullIndex = excludeLast && years.length > 1 ? years.length - 2 : lastIndex;
+          const firstYear = years[0];
+          const lastFullYear = years[lastFullIndex];
+          const periods = lastFullYear - firstYear;
+          modes.forEach((mode) => {
+            const id = mode.id;
+            const startVal = agg[firstYear]?.[id] ?? 0;
+            const endVal = agg[lastFullYear]?.[id] ?? 0;
+            let cagr = 0;
+            if (startVal > 0 && periods > 0) {
+              cagr = Math.pow(endVal / startVal, 1 / periods) - 1;
+            }
+            let base = agg[years[lastIndex]]?.[id] ?? 0;
+            projections[id] = [];
+            for (let i = 1; i <= horizon; i++) {
+              base = base * (1 + cagr);
+              projections[id].push({ year: years[lastIndex] + i, value: base });
             }
           });
-        });
-        return maxWeeks;
-      }
+          return projections;
+        }
 
-      /**
-       * Aggregate weekly data into yearly totals for a given week range.
-       * Only values whose week number lies within [startWeek, endWeek]
-       * inclusive are accumulated.  Returns an object keyed by year
-       * containing per-mode totals.
-       */
-      function aggregateByYearWeekRange(series, startWeek, endWeek) {
-        const agg = {};
-        Object.keys(series).forEach((mode) => {
-          series[mode].forEach(({ week, value }) => {
-            if (value === null || isNaN(value)) return;
-            const { year, week: wk } = parseWeek(week);
-            if (!year || !wk) return;
-            if (wk < startWeek || wk > endWeek) return;
-            if (!agg[year]) agg[year] = {};
-            if (!agg[year][mode]) agg[year][mode] = 0;
-            agg[year][mode] += value;
-          });
-        });
-        return agg;
-      }
+        function App() {
+          const [loading, setLoading] = useState(true);
+          const [error, setError] = useState(null);
+          const [modes, setModes] = useState([]);
+          const [series, setSeries] = useState({});
+          const [selectedModes, setSelectedModes] = useState([]);
+          const [yearRange, setYearRange] = useState([2019, 2025]);
+          const [weekRange, setWeekRange] = useState([1, 52]);
+          const [maxWeek, setMaxWeek] = useState(52);
+          const [agg, setAgg] = useState({});
+          const chartRef = useRef(null);
+          const chartInstanceRef = useRef(null);
 
-      /**
-       * Compute CAGR projections for each mode while optionally
-       * excluding the final year from the CAGR calculation when it is
-       * considered partial.  Growth rates are derived from the first
-       * and last full years.  Projections always start from the last
-       * available value (which may be partial) and extend a fixed
-       * horizon into the future.
-       */
-      function computeProjectionsAdjusted(agg, years, modes, horizon = 5, excludeLastYear = false) {
-        const proj = {};
-        if (!years || years.length === 0) return proj;
-        const lastIndex = years.length - 1;
-        const lastFullIndex = excludeLastYear && years.length > 1 ? years.length - 2 : lastIndex;
-        const firstYear = years[0];
-        const lastFullYear = years[lastFullIndex];
-        const periods = lastFullYear - firstYear;
-        modes.forEach((mode) => {
-          const id = mode.id;
-          const startVal = agg[firstYear]?.[id] ?? 0;
-          const endVal = agg[lastFullYear]?.[id] ?? 0;
-          let cagr = 0;
-          if (startVal > 0 && periods > 0) {
-            cagr = Math.pow(endVal / startVal, 1 / periods) - 1;
-          }
-          let base = agg[years[lastIndex]]?.[id] ?? 0;
-          proj[id] = [];
-          for (let i = 1; i <= horizon; i++) {
-            base = base * (1 + cagr);
-            proj[id].push({ year: years[lastIndex] + i, value: base });
-          }
-        });
-        return proj;
-      }
-
-      function App() {
-        const [loading, setLoading] = useState(true);
-        const [error, setError] = useState(null);
-        const [modes, setModes] = useState([]);
-        const [series, setSeries] = useState({});
-        const [agg, setAgg] = useState({});
-        const [selectedModes, setSelectedModes] = useState([]);
-        const [yearRange, setYearRange] = useState([2019, 2025]);
-        // Week range selection and week metadata.  These are
-        // initialised after the dataset loads.  `weekRange` holds
-        // [startWeek, endWeek] inclusive, `maxWeek` is the highest
-        // week number observed across all years, and `maxWeekByYear`
-        // maps each year to its own maximum week number.
-        const [weekRange, setWeekRange] = useState([1, 52]);
-        const [maxWeek, setMaxWeek] = useState(52);
-        const [maxWeekByYear, setMaxWeekByYear] = useState({});
-        const chartRef = useRef(null);
-        const chartInstanceRef = useRef(null);
-
-        // Load data on mount
-        useEffect(() => {
-          async function load() {
-            try {
-              const resp = await fetch(DATA_JSON_URL);
-              if (!resp.ok) throw new Error('JSON fetch failed');
-              const json = await resp.json();
-              let { modes, series } = parseJsonStat(json);
-              // The THA25 dataset includes Luas; no fallback or additional modes required
-              const updatedModes = modes;
-              const aggregated = aggregateByYear(series);
-              // derive week metadata
-              const mwByYear = computeMaxWeekByYear(series);
-              const weekVals = Object.values(mwByYear);
-              const overallMax = weekVals.length ? Math.max(...weekVals) : 52;
-              setMaxWeekByYear(mwByYear);
-              setMaxWeek(overallMax);
-              setWeekRange([1, overallMax]);
-              setModes(updatedModes);
-              setSeries(series);
-              setAgg(aggregated);
-              setSelectedModes(updatedModes.map((m) => m.id));
-              const years = Object.keys(aggregated)
-                .map((y) => Number(y))
-                .sort((a, b) => a - b);
-              if (years.length) setYearRange([years[0], years[years.length - 1]]);
-              setLoading(false);
-            } catch (err) {
+          // Load dataset on mount. We always fetch the CSV file from the same origin
+          // (THA25.csv) which is stored in the repository alongside index.html.
+          useEffect(() => {
+            async function load() {
               try {
-              const resp2 = await fetch(DATA_CSV_URL);
-                if (!resp2.ok) throw new Error('CSV fetch failed');
-                const text = await resp2.text();
-                let { modes, series } = parseCsv(text);
-                // The THA25 dataset includes Luas; no fallback or additional modes required
-                const updatedModes = modes;
-                const aggregated = aggregateByYear(series);
-                const mwByYear = computeMaxWeekByYear(series);
-                const weekVals = Object.values(mwByYear);
-                const overallMax = weekVals.length ? Math.max(...weekVals) : 52;
-                setMaxWeekByYear(mwByYear);
-                setMaxWeek(overallMax);
-                setWeekRange([1, overallMax]);
-                setModes(updatedModes);
-                setSeries(series);
+                const resp = await fetch(DATA_CSV_URL);
+                if (!resp.ok) throw new Error('CSV fetch failed');
+                const text = await resp.text();
+                const { modes: mds, series: srs } = parseCsv(text);
+                const aggregated = aggregateByYear(srs);
+                const mwByYear = computeMaxWeekByYear(srs);
+                const maxVal = Math.max(...Object.values(mwByYear));
+                setModes(mds);
+                setSeries(srs);
                 setAgg(aggregated);
-                setSelectedModes(updatedModes.map((m) => m.id));
-                const years = Object.keys(aggregated)
-                  .map((y) => Number(y))
-                  .sort((a, b) => a - b);
-                if (years.length) setYearRange([years[0], years[years.length - 1]]);
+                setMaxWeek(maxVal);
+                setWeekRange([1, maxVal]);
                 setLoading(false);
-              } catch (error) {
-                setError(error.message);
+                setSelectedModes(mds.map((m) => m.id));
+              } catch (err) {
+                setError(err.message);
                 setLoading(false);
               }
             }
-          }
-          load();
-        }, []);
+            load();
+          }, []);
 
-        // Recompute chart whenever dependencies change
-        useEffect(() => {
-          if (loading || !modes.length) return;
-          drawChart();
-        }, [loading, selectedModes, yearRange, weekRange, agg, series, maxWeekByYear]);
+          // Draw or update chart when dependencies change
+          useEffect(() => {
+            if (loading || selectedModes.length === 0) return;
+            drawChart();
+          }, [loading, selectedModes, yearRange, weekRange, series]);
 
-        // Build and render the Chart.js line chart.  This function
-        // derives year labels from the full aggregator, aggregates
-        // weekly data according to the selected week range, determines
-        // whether the last year is partial, computes projections, and
-        // then renders historical and projection lines for each selected
-        // mode.  Projections use a CAGR based on full years only when
-        // the final year is incomplete.
-        function drawChart() {
-          const ctx = chartRef.current.getContext('2d');
-          // Destroy any existing chart to avoid memory leaks
-          if (chartInstanceRef.current) {
-            chartInstanceRef.current.destroy();
+          function drawChart() {
+            const ctx = chartRef.current.getContext('2d');
+            // Destroy existing instance
+            if (chartInstanceRef.current) {
+              chartInstanceRef.current.destroy();
+            }
+            // Compute filtered aggregates within selected week range
+            const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
+            const allYears = Object.keys(filteredAgg)
+              .map((y) => Number(y))
+              .sort((a, b) => a - b);
+            const [startYear, endYear] = yearRange;
+            const visibleYears = allYears.filter((y) => y >= startYear && y <= endYear);
+            // Determine if the last year is partial (selected week range ends before max week for that year)
+            const maxWeekForEndYear = computeMaxWeekByYear(series)[endYear] || maxWeek;
+            const isPartial = weekRange[1] < maxWeekForEndYear;
+            // Compute projections
+            const projections = computeProjectionsAdjusted(filteredAgg, allYears, modes, 5, isPartial);
+            // Build labels combining history and projection years
+            const histLabels = visibleYears.map((y) => String(y));
+            const projYearSet = new Set();
+            selectedModes.forEach((id) => {
+              projections[id]?.forEach((p) => {
+                projYearSet.add(String(p.year));
+              });
+            });
+            const projLabels = Array.from(projYearSet).filter((y) => !histLabels.includes(y)).sort();
+            const labels = histLabels.concat(projLabels);
+            // Assign colours (cycle through a palette)
+            const palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+            const datasets = [];
+            selectedModes.forEach((id, idx) => {
+              const colour = palette[idx % palette.length];
+              // Historical data points (null for projection labels)
+              const histData = labels.map((label) => {
+                const y = parseInt(label, 10);
+                return histLabels.includes(label) ? filteredAgg[y]?.[id] ?? null : null;
+              });
+              datasets.push({
+                label: modes.find((m) => m.id === id)?.name || id,
+                data: histData,
+                borderColor: colour,
+                backgroundColor: colour,
+                tension: 0.2,
+                spanGaps: true,
+              });
+              // Projection line (dashed)
+              const projData = labels.map((label) => {
+                const entry = projections[id]?.find((p) => String(p.year) === label);
+                return entry ? entry.value : null;
+              });
+              datasets.push({
+                label: (modes.find((m) => m.id === id)?.name || id) + ' (proj)',
+                data: projData,
+                borderColor: colour,
+                backgroundColor: colour,
+                borderDash: [5, 5],
+                tension: 0.2,
+                spanGaps: true,
+              });
+            });
+            const chart = new Chart(ctx, {
+              type: 'line',
+              data: { labels, datasets },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                  y: {
+                    ticks: { callback: (value) => value.toLocaleString('en-IE') },
+                    title: { display: true, text: 'Journeys' },
+                  },
+                  x: {
+                    title: { display: true, text: 'Year' },
+                  },
+                },
+              },
+            });
+            chartInstanceRef.current = chart;
           }
-          // Determine all years from the full aggregator (complete data)
-          const allYears = Object.keys(agg)
+
+          // Summary cards using filtered aggregate
+          const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
+          const [startYear, endYear] = yearRange;
+          const summaryCards = selectedModes.map((id) => {
+            const lastVal = filteredAgg[endYear]?.[id] ?? 0;
+            const prevVal = filteredAgg[endYear - 1]?.[id] ?? 0;
+            const diff = lastVal - prevVal;
+            const diffPct = prevVal ? (diff / prevVal) * 100 : 0;
+            return React.createElement(
+              'div',
+              { key: id, className: 'summary-card' },
+              React.createElement('div', { className: 'summary-title' }, modes.find((m) => m.id === id)?.name || id),
+              React.createElement('div', { className: 'summary-value' }, lastVal ? lastVal.toLocaleString('en-IE') : 'N/A'),
+              React.createElement(
+                'div',
+                {
+                  className: 'summary-diff',
+                  style: { color: diff >= 0 ? '#059669' : '#b91c1c' },
+                },
+                (diff >= 0 ? '+' : '') + diff.toLocaleString('en-IE') + ' (' + diffPct.toFixed(1) + '%)',
+              ),
+              React.createElement('div', { style: { fontSize: '0.75rem', color: '#6b7280' } },
+                endYear + ' vs ' + (endYear - 1) + ' (Weeks ' + weekRange[0] + '\u2013' + weekRange[1] + ')'),
+            );
+          });
+
+          if (loading) {
+            return React.createElement('div', { className: 'card' }, 'Loading data…');
+          }
+          if (error) {
+            return React.createElement('div', { className: 'card', style: { color: 'red' } }, 'Error: ' + error);
+          }
+
+          const yearsAvailable = Object.keys(agg)
             .map((y) => Number(y))
             .sort((a, b) => a - b);
-          const [startYear, endYear] = yearRange;
-          const visibleYears = allYears.filter((y) => y >= startYear && y <= endYear);
-          // Aggregate weekly data for the current week range
-          const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
-          // Determine if the last visible year is partial based on the
-          // maximum week observed for that year
-          let isPartial = false;
-          if (visibleYears.length) {
-            const endYr = visibleYears[visibleYears.length - 1];
-            const maxWk = maxWeekByYear[endYr] || maxWeek;
-            if (weekRange[1] < maxWk) isPartial = true;
-          }
-          // Compute projections using the filtered aggregator and CAGR
-          const projections = computeProjectionsAdjusted(
-            filteredAgg,
-            allYears,
-            modes,
-            5,
-            isPartial,
-          );
-          // Construct x-axis labels: history years plus projection years
-          const historyLabels = visibleYears.map((y) => String(y));
-          const projYearSet = new Set();
-          selectedModes.forEach((id) => {
-            (projections[id] || []).forEach((p) => {
-              projYearSet.add(String(p.year));
-            });
-          });
-          const projLabels = Array.from(projYearSet).filter(
-            (y) => !historyLabels.includes(y),
-          );
-          projLabels.sort();
-          const labels = historyLabels.concat(projLabels);
-          // Colour palette for multiple modes
-          const colours = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
-          const datasets = [];
-          selectedModes.forEach((id, idx) => {
-            const colour = colours[idx % colours.length];
-            // Historical data: for each label, if it's a history year, use the
-            // aggregated value within the week range; otherwise null
-            const histData = labels.map((label) => {
-              const y = parseInt(label, 10);
-              return historyLabels.includes(label)
-                ? filteredAgg[y]?.[id] ?? null
-                : null;
-            });
-            datasets.push({
-              label: modes.find((m) => m.id === id)?.name || id,
-              data: histData,
-              borderColor: colour,
-              backgroundColor: colour,
-              tension: 0.2,
-              spanGaps: true,
-            });
-            // Projection data: for each label, if there's a projection entry
-            // for that year, include its value; otherwise null
-            const projData = labels.map((label) => {
-              const entries = projections[id] || [];
-              const match = entries.find((p) => String(p.year) === label);
-              return match ? match.value : null;
-            });
-            datasets.push({
-              label: (modes.find((m) => m.id === id)?.name || id) + ' (proj)',
-              data: projData,
-              borderColor: colour,
-              backgroundColor: colour,
-              borderDash: [5, 5],
-              tension: 0.2,
-              spanGaps: true,
-            });
-          });
-          // Create the chart
-          const chart = new Chart(ctx, {
-            type: 'line',
-            data: { labels, datasets },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              interaction: { mode: 'nearest', axis: 'x', intersect: false },
-              plugins: {
-                legend: { position: 'top' },
-              },
-              scales: {
-                y: {
-                  ticks: {
-                    callback: (value) => value.toLocaleString('en-IE'),
-                  },
-                  title: {
-                    display: true,
-                    text: 'Journeys',
-                  },
-                },
-                x: {
-                  title: {
-                    display: true,
-                    text: 'Year',
-                  },
-                },
-              },
-            },
-          });
-          chartInstanceRef.current = chart;
-          // Draw the Luas weekly journeys panel whenever the main chart is drawn.
-          drawLuasPanel(series, weekRange, maxWeekByYear);
-        }
-
-        /**
-         * Compute a year-to-date sum of weekly values up to a given week.
-         * Accepts an array of objects with {year, week, value}.
-         */
-        function ytdSum(arr, year, maxWk) {
-          return arr
-            .filter((d) => d.year === year && d.week <= maxWk)
-            .reduce((sum, d) => sum + (d.value || 0), 0);
-        }
-
-        /**
-         * Draw the Luas weekly journeys panel.  If a Luas series is present
-         * in the data, this function populates KPI values and renders a line
-         * chart of weekly journeys in the #luasChart canvas.  It uses
-         * maxWeekByYear to compute year-to-date and year-on-year metrics.
-         */
-        function drawLuasPanel(seriesByMode, weekRange, maxWeekByYear) {
-          const luasSeries = seriesByMode['Luas'] || seriesByMode['LUAS'];
-          if (!luasSeries || !luasSeries.length) return;
-          // Convert week identifiers into {year, week, value}
-          const parsed = luasSeries.map(({ week, value }) => {
-            const { year, week: wk } = parseWeek(week);
-            return { year, week: wk, value };
-          });
-          // Sort for consistent labels
-          parsed.sort((a, b) => a.year - b.year || a.week - b.week);
-          const labels = parsed.map((d) => `${d.year}W${String(d.week).padStart(2, '0')}`);
-          const data = parsed.map((d) => d.value);
-          // KPIs: latest value, YTD and YOY based on maxWeekByYear
-          const latest = parsed[parsed.length - 1];
-          const elLatest = document.getElementById('luas-latest');
-          const elYtd = document.getElementById('luas-ytd');
-          const elYoy = document.getElementById('luas-yoy');
-          if (elLatest) {
-            elLatest.textContent = latest ? latest.value.toLocaleString('en-IE') : '—';
-          }
-          // Determine current and previous year
-          const yearsArr = Array.from(new Set(parsed.map((d) => d.year))).sort((a, b) => a - b);
-          const currentYear = yearsArr[yearsArr.length - 1];
-          const prevYear = yearsArr[yearsArr.length - 2] || currentYear - 1;
-          const maxWkCurr = maxWeekByYear[currentYear] || 52;
-          const maxWkPrev = maxWeekByYear[prevYear] || 52;
-          const ytdCurr = ytdSum(parsed, currentYear, maxWkCurr);
-          const ytdPrev = ytdSum(parsed, prevYear, Math.min(maxWkCurr, maxWkPrev));
-          if (elYtd) {
-            elYtd.textContent = ytdCurr.toLocaleString('en-IE');
-          }
-          if (elYoy) {
-            const diff = ytdPrev ? ((ytdCurr - ytdPrev) / ytdPrev) * 100 : 0;
-            elYoy.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%';
-          }
-          // Render chart
-          const canvas = document.getElementById('luasChart');
-          if (!canvas) return;
-          const ctx2 = canvas.getContext('2d');
-          if (window._luasChart) {
-            window._luasChart.destroy();
-          }
-          window._luasChart = new Chart(ctx2, {
-            type: 'line',
-            data: {
-              labels,
-              datasets: [
-                {
-                  label: 'Luas weekly journeys',
-                  data,
-                  tension: 0.25,
-                  borderColor: '#e11d48',
-                  backgroundColor: '#fef2f2',
-                  borderWidth: 2,
-                  pointRadius: 0,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              scales: {
-                y: {
-                  ticks: {
-                    callback: (val) => val.toLocaleString('en-IE'),
-                  },
-                  title: { display: true, text: 'Journeys' },
-                },
-                x: {
-                  ticks: { maxTicksLimit: 12 },
-                  title: { display: true, text: 'Week' },
-                },
-              },
-              plugins: { legend: { display: false } },
-            },
-          });
-        }
-
-        if (loading) {
-          return React.createElement('div', { className: 'card' }, 'Loading data…');
-        }
-        if (error) {
           return React.createElement(
             'div',
-            { className: 'card', style: { color: 'red' } },
-            'Error: ' + error,
+            null,
+            React.createElement('h1', null, 'Irish Public Transport Dashboard'),
+            // Filters
+            React.createElement(
+              'div',
+              { className: 'card filters' },
+              // Start year
+              React.createElement(
+                'div',
+                { className: 'filter-group' },
+                React.createElement('label', { htmlFor: 'startYear' }, 'Start year'),
+                React.createElement(
+                  'select',
+                  {
+                    id: 'startYear',
+                    value: yearRange[0],
+                    onChange: (e) => {
+                      const newStart = Number(e.target.value);
+                      setYearRange([newStart, Math.max(newStart, yearRange[1])]);
+                    },
+                  },
+                  yearsAvailable.map((y) =>
+                    React.createElement(
+                      'option',
+                      { key: y, value: y, disabled: y > yearRange[1] },
+                      y,
+                    ),
+                  ),
+                ),
+              ),
+              // End year
+              React.createElement(
+                'div',
+                { className: 'filter-group' },
+                React.createElement('label', { htmlFor: 'endYear' }, 'End year'),
+                React.createElement(
+                  'select',
+                  {
+                    id: 'endYear',
+                    value: yearRange[1],
+                    onChange: (e) => {
+                      const newEnd = Number(e.target.value);
+                      setYearRange([Math.min(newEnd, yearRange[0]), newEnd]);
+                    },
+                  },
+                  yearsAvailable.map((y) =>
+                    React.createElement(
+                      'option',
+                      { key: y, value: y, disabled: y < yearRange[0] },
+                      y,
+                    ),
+                  ),
+                ),
+              ),
+              // Start week
+              React.createElement(
+                'div',
+                { className: 'filter-group' },
+                React.createElement('label', { htmlFor: 'startWeek' }, 'Start week'),
+                React.createElement(
+                  'select',
+                  {
+                    id: 'startWeek',
+                    value: weekRange[0],
+                    onChange: (e) => {
+                      const val = Number(e.target.value);
+                      setWeekRange([val, Math.max(val, weekRange[1])]);
+                    },
+                  },
+                  Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
+                    React.createElement(
+                      'option',
+                      { key: w, value: w, disabled: w > weekRange[1] },
+                      w,
+                    ),
+                  ),
+                ),
+              ),
+              // End week
+              React.createElement(
+                'div',
+                { className: 'filter-group' },
+                React.createElement('label', { htmlFor: 'endWeek' }, 'End week'),
+                React.createElement(
+                  'select',
+                  {
+                    id: 'endWeek',
+                    value: weekRange[1],
+                    onChange: (e) => {
+                      const val = Number(e.target.value);
+                      setWeekRange([Math.min(val, weekRange[0]), val]);
+                    },
+                  },
+                  Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
+                    React.createElement(
+                      'option',
+                      { key: w, value: w, disabled: w < weekRange[0] },
+                      w,
+                    ),
+                  ),
+                ),
+              ),
+              // Mode checkboxes
+              React.createElement(
+                'div',
+                { className: 'filter-group', style: { flex: 1 } },
+                React.createElement('span', null, 'Modes'),
+                React.createElement(
+                  'div',
+                  { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+                  modes.map((mode) =>
+                    React.createElement(
+                      'label',
+                      { key: mode.id, style: { display: 'flex', alignItems: 'center' } },
+                      React.createElement('input', {
+                        type: 'checkbox',
+                        checked: selectedModes.includes(mode.id),
+                        onChange: () => {
+                          setSelectedModes((prev) =>
+                            prev.includes(mode.id)
+                              ? prev.filter((m) => m !== mode.id)
+                              : prev.concat(mode.id),
+                          );
+                        },
+                      }),
+                      React.createElement('span', { style: { marginLeft: '0.25rem' } }, mode.name),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Summary cards
+            React.createElement('div', { className: 'summary-container' }, summaryCards),
+            // Chart container
+            React.createElement(
+              'div',
+              { className: 'card' },
+              React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Annual passenger journeys'),
+              React.createElement('div', { className: 'chart-container' },
+                React.createElement('canvas', { ref: chartRef }),
+              ),
+            ),
+            // Note
+            React.createElement(
+              'p',
+              { style: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem' } },
+              'Source: CSO THA25 dataset. Values reflect cumulative journeys within the selected week range. Projections use CAGR derived from complete years and start from the last observed value.',
+            ),
           );
         }
-        const allYears = Object.keys(agg)
-          .map((y) => Number(y))
-          .sort((a, b) => a - b);
-        const [startYear, endYear] = yearRange;
-        // Recompute aggregated totals within the selected week range for
-        // summary cards.  This includes all years so that differences
-        // can be computed relative to the previous year even if it is
-        // outside the visible range.
-        const aggFiltered = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
-        const summaryCards = selectedModes.map((id) => {
-          const lastYr = endYear;
-          const prevYr = endYear - 1;
-          const lastVal = aggFiltered[lastYr]?.[id] ?? 0;
-          const prevVal = aggFiltered[prevYr]?.[id] ?? 0;
-          const diff = lastVal - prevVal;
-          const diffPct = prevVal ? (diff / prevVal) * 100 : 0;
-          return React.createElement(
-            'div',
-            { key: id, className: 'summary-card' },
-            React.createElement('div', { className: 'summary-title' },
-              modes.find((m) => m.id === id)?.name || id,
-            ),
-            React.createElement(
-              'div',
-              { className: 'summary-value' },
-              lastVal ? lastVal.toLocaleString('en-IE') : 'N/A',
-            ),
-            React.createElement(
-              'div',
-              {
-                className: 'summary-diff',
-                style: { color: diff >= 0 ? '#059669' : '#b91c1c' },
-              },
-              (diff >= 0 ? '+' : '') + diff.toLocaleString('en-IE') +
-                ' (' + diffPct.toFixed(1) + '%)',
-            ),
-            React.createElement('div', { style: { fontSize: '0.75rem', color: '#6b7280' } },
-              lastYr + ' vs ' + prevYr + ' (Weeks ' + weekRange[0] + '\u2013' + weekRange[1] + ')',
-            ),
-          );
-        });
-        return React.createElement(
-          'div',
-          null,
-          React.createElement('h1', null, 'Irish Public Transport Dashboard'),
-          // Filters
-          React.createElement(
-            'div',
-            { className: 'card filters' },
-            // Start year selector
-            React.createElement(
-              'div',
-              { className: 'filter-group' },
-              React.createElement('label', { htmlFor: 'startYear' }, 'Start year'),
-              React.createElement(
-                'select',
-                {
-                  id: 'startYear',
-                  value: startYear,
-                  onChange: (e) => {
-                    const newStart = Number(e.target.value);
-                    setYearRange([newStart, Math.max(newStart, endYear)]);
-                  },
-                },
-                allYears.map((y) =>
-                  React.createElement(
-                    'option',
-                    { key: y, value: y, disabled: y > endYear },
-                    y,
-                  ),
-                ),
-              ),
-            ),
-            // End year selector
-            React.createElement(
-              'div',
-              { className: 'filter-group' },
-              React.createElement('label', { htmlFor: 'endYear' }, 'End year'),
-              React.createElement(
-                'select',
-                {
-                  id: 'endYear',
-                  value: endYear,
-                  onChange: (e) => {
-                    const newEnd = Number(e.target.value);
-                    setYearRange([Math.min(newEnd, startYear), newEnd]);
-                  },
-                },
-                allYears.map((y) =>
-                  React.createElement(
-                    'option',
-                    { key: y, value: y, disabled: y < startYear },
-                    y,
-                  ),
-                ),
-              ),
-            ),
 
-            // Start week selector
-            React.createElement(
-              'div',
-              { className: 'filter-group' },
-              React.createElement('label', { htmlFor: 'startWeek' }, 'Start week'),
-              React.createElement(
-                'select',
-                {
-                  id: 'startWeek',
-                  value: weekRange[0],
-                  onChange: (e) => {
-                    const val = Number(e.target.value);
-                    setWeekRange([val, Math.max(val, weekRange[1])]);
-                  },
-                },
-                Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
-                  React.createElement(
-                    'option',
-                    { key: w, value: w, disabled: w > weekRange[1] },
-                    w,
-                  ),
-                ),
-              ),
-            ),
-            // End week selector
-            React.createElement(
-              'div',
-              { className: 'filter-group' },
-              React.createElement('label', { htmlFor: 'endWeek' }, 'End week'),
-              React.createElement(
-                'select',
-                {
-                  id: 'endWeek',
-                  value: weekRange[1],
-                  onChange: (e) => {
-                    const val = Number(e.target.value);
-                    setWeekRange([Math.min(val, weekRange[0]), val]);
-                  },
-                },
-                Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
-                  React.createElement(
-                    'option',
-                    { key: w, value: w, disabled: w < weekRange[0] },
-                    w,
-                  ),
-                ),
-              ),
-            ),
-            // Mode checkboxes
-            React.createElement(
-              'div',
-              { className: 'filter-group', style: { flex: 1 } },
-              React.createElement('span', null, 'Modes'),
-              React.createElement(
-                'div',
-                { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
-                modes.map((mode) =>
-                  React.createElement(
-                    'label',
-                    { key: mode.id, style: { display: 'flex', alignItems: 'center' } },
-                    React.createElement('input', {
-                      type: 'checkbox',
-                      checked: selectedModes.includes(mode.id),
-                      onChange: () => {
-                        setSelectedModes((prev) =>
-                          prev.includes(mode.id)
-                            ? prev.filter((m) => m !== mode.id)
-                            : prev.concat(mode.id),
-                        );
-                      },
-                    }),
-                    React.createElement('span', { style: { marginLeft: '0.25rem' } }, mode.name),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Summary cards
-          React.createElement(
-            'div',
-            { className: 'summary-container' },
-            summaryCards,
-          ),
-          // Chart container
-          React.createElement(
-            'div',
-            { className: 'card' },
-            React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Annual passenger journeys'),
-            React.createElement('div', { className: 'chart-container' },
-              React.createElement('canvas', { ref: chartRef }),
-            ),
-          ),
-          // Luas panel
-          React.createElement(
-            'div',
-            { className: 'card' },
-            React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Luas — Weekly journeys'),
-            React.createElement(
-              'div',
-              { className: 'summary-container' },
-              React.createElement(
-                'div',
-                { className: 'summary-card' },
-                React.createElement('div', { className: 'summary-title' }, 'Latest week'),
-                React.createElement('div', { id: 'luas-latest', className: 'summary-value' }, '—'),
-              ),
-              React.createElement(
-                'div',
-                { className: 'summary-card' },
-                React.createElement('div', { className: 'summary-title' }, 'YTD'),
-                React.createElement('div', { id: 'luas-ytd', className: 'summary-value' }, '—'),
-              ),
-              React.createElement(
-                'div',
-                { className: 'summary-card' },
-                React.createElement('div', { className: 'summary-title' }, 'YoY'),
-                React.createElement('div', { id: 'luas-yoy', className: 'summary-value' }, '—'),
-              ),
-            ),
-            React.createElement('div', { style: { height: '220px' } },
-              React.createElement('canvas', { id: 'luasChart' }),
-            ),
-            React.createElement('small', { style: { fontSize: '0.75rem', color: '#6b7280' } },
-              'Luas source: CSO THA25 dataset.',
-            ),
-          ),
-          // Source note
-          React.createElement(
-            'p',
-            { style: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem' } },
-            'Source: Central Statistics Office (CSO) – THA25 dataset. Values represent the cumulative total of passenger journeys within the selected week range for each year. Projections are illustrative and use compound annual growth rates based on complete years; when the last year is incomplete the CAGR is derived from the previous full year and projections start from the partial value.',
-          ),
-        );
-      }
-
-      ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+        ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+      })();
     </script>
   </body>
 </html>
