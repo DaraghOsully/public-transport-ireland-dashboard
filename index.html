@@ -72,9 +72,59 @@
         position: relative;
         height: 400px;
       }
+
+      /* Gallery for mode images */
+      .mode-gallery {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.75rem;
+        margin: 1rem 0;
+      }
+      .mode-gallery figure {
+        margin: 0;
+        background: #ffffff;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      .mode-gallery img {
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+        display: block;
+      }
+      .mode-gallery figcaption {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        color: #555555;
+      }
+      @media (max-width: 900px) {
+        .mode-gallery {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
     </style>
   </head>
   <body>
+    <!-- Image gallery for each transport mode -->
+    <div class="mode-gallery">
+      <figure>
+        <img src="5db86c5c-97f0-468c-84af-14505d5e6895.png" alt="Modern tram" />
+        <figcaption>Tram — illustration</figcaption>
+      </figure>
+      <figure>
+        <img src="05007a05-7b40-40ce-a7c9-39eb218b7792.png" alt="Double-decker bus" />
+        <figcaption>Bus — illustration</figcaption>
+      </figure>
+      <figure>
+        <img src="aa1dc661-cc5f-4bee-ae21-667bbd4a2d16.png" alt="Modern train" />
+        <figcaption>Train — illustration</figcaption>
+      </figure>
+      <figure>
+        <img src="9f9a7e1d-57ff-4ba9-a6fe-f8319d84b775.png" alt="Coach bus" />
+        <figcaption>Coach — illustration</figcaption>
+      </figure>
+    </div>
     <div id="app"></div>
     <script type="text/javascript">
       (function () {
