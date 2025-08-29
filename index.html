@@ -189,42 +189,63 @@
       useEffect(() => {
         async function load() {
           try {
-            const response = await fetch('THA25.csv');
-            if (!response.ok) throw new Error('Failed to fetch dataset');
-            const csvText = await response.text();
-            const parsed = Papa.parse(csvText, {
-              header: true,
-              skipEmptyLines: true,
-            });
-            const data = parsed.data;
-            // Map each row to a simpler object
+            // Fetch both THA25 and TII03 datasets.  THA25 contains bus and rail data,
+            // while TII03 provides weekly Luas passenger numbers.  Both files are
+            // stored in this repository as CSVs.
+            const [thaRes, tiiRes] = await Promise.all([
+              fetch('THA25.csv'),
+              fetch('TII03.csv'),
+            ]);
+            if (!thaRes.ok) throw new Error('Failed to fetch THA25.csv');
+            if (!tiiRes.ok) throw new Error('Failed to fetch TII03.csv');
+            const [thaCsv, tiiCsv] = await Promise.all([
+              thaRes.text(),
+              tiiRes.text(),
+            ]);
+            const thaParsed = Papa.parse(thaCsv, { header: true, skipEmptyLines: true });
+            const tiiParsed = Papa.parse(tiiCsv, { header: true, skipEmptyLines: true });
             const mapped = [];
-            data.forEach(row => {
+            // Process THA25 rows
+            thaParsed.data.forEach(row => {
               const modeLabel = row['Mode of Transport'] || row['C03935V04687'] || '';
-              let value = row['VALUE'];
-              if (value === '') return; // skip blank values
+              const value = row['VALUE'];
+              if (!value || value === '') return;
               const val = parseInt(value, 10);
               const weekCode = row['TLIST(W1)'];
               if (!weekCode) return;
               const year = parseInt(weekCode.slice(0, 4), 10);
               const wkMatch = weekCode.match(/W(\d+)/i);
               const week = wkMatch ? parseInt(wkMatch[1], 10) : 1;
-              // Only include specific modes; rename for clarity
-              let mode;
               const lower = modeLabel.toLowerCase();
+              // Skip aggregate categories such as "all public transport"
+              if (lower.includes('all')) return;
+              let mode;
               if (lower.includes('metro')) {
                 mode = 'Dublin Bus';
               } else if (lower.includes('bus') && lower.includes('excluding')) {
-                mode = 'Bus Éireann';
+                mode = 'Regional Bus';
               } else if (lower.includes('rail')) {
-                mode = 'Rail';
-              } else if (lower.includes('luas')) {
-                mode = 'Luas';
+                mode = 'Irish Rail';
               } else {
-                // skip aggregate or unknown modes
+                // skip unknown categories and Luas (handled separately)
                 return;
               }
               mapped.push({ mode, year, week, value: val });
+            });
+            // Process TII03 rows (Luas)
+            tiiParsed.data.forEach(row => {
+              // Only use the aggregate of all Luas lines
+              const line = row['Luas Line'] || row['C03132V03784'];
+              if (!line || line.toLowerCase().indexOf('all') === -1) return;
+              const value = row['VALUE'];
+              if (!value || value === '') return;
+              const val = parseInt(value, 10);
+              const weekCode = row['TLIST(W1)'] || row['Week'];
+              if (!weekCode) return;
+              const year = parseInt(weekCode.slice(0, 4), 10);
+              const wkMatch = weekCode.match(/W(\d+)/i);
+              const week = wkMatch ? parseInt(wkMatch[1], 10) : 1;
+              mapped.push({ mode: 'Luas', year, week, value: val });
             });
             setRows(mapped);
             setLoading(false);
@@ -318,6 +339,9 @@
         Object.keys(weeklyBy).forEach(mode => {
           mByMode[mode] = computeMetrics(weeklyBy[mode]);
         });
+        // Also include an aggregated category for all public transport
+        // using the same weekly aggregate used for overall metrics
+        mByMode['All Public Transport'] = computeMetrics(aggWeekly);
         setMetricsByMode(mByMode);
         // Compute update dates
         const lastItem = aggWeekly[aggWeekly.length - 1];
@@ -357,7 +381,7 @@
             labels,
             datasets: [
               {
-                label: 'All Services',
+                label: 'All Public Transport',
                 data: dataVals,
                 tension: 0.3,
                 borderWidth: 2,
@@ -531,7 +555,7 @@
         React.createElement(
           'div',
           { className: 'chart-container' },
-          React.createElement('h2', null, 'Ridership Trend – All Services'),
+          React.createElement('h2', null, 'Ridership Trend – All Public Transport'),
           React.createElement('div', { style: { height: '300px' } },
             React.createElement('canvas', { id: 'aggChart' })
           )
@@ -558,27 +582,39 @@
           [
             React.createElement(
               'figure',
-              { key: 'tram' },
-              React.createElement('img', { src: '5db86c5c-97f0-468c-84af-14505d5e6895.png', alt: 'Tram — illustration' }),
-              React.createElement('figcaption', null, 'Tram – illustration')
+              { key: 'dublin-bus' },
+              React.createElement('img', { src: 'dublin_bus.jpg', alt: 'Dublin Bus double‑decker' }),
+              React.createElement('figcaption', null, 'Dublin Bus – CC BY-SA / Wikimedia Commons')
             ),
             React.createElement(
               'figure',
-              { key: 'train' },
-              React.createElement('img', { src: 'aa1dc661-cc5f-4bee-ae21-667bbd4a2d16.png', alt: 'Train — illustration' }),
-              React.createElement('figcaption', null, 'Train – illustration')
+              { key: 'regional-bus' },
+              React.createElement('img', { src: 'bus_eireann.jpg', alt: 'Regional Bus (Bus Éireann) coach' }),
+              React.createElement('figcaption', null, 'Regional Bus (Bus Éireann) – CC BY 4.0 / Wikimedia Commons')
             ),
             React.createElement(
               'figure',
-              { key: 'bus' },
-              React.createElement('img', { src: '05007a05-7b40-40ce-a7c9-39eb218b7792.png', alt: 'Bus — illustration' }),
-              React.createElement('figcaption', null, 'Bus – illustration')
+              { key: 'luas' },
+              React.createElement('img', { src: 'luas_tram.jpg', alt: 'Luas tram on O\'Connell Street' }),
+              React.createElement('figcaption', null, 'Luas tram – CC BY 3.0 / Wikimedia Commons')
             ),
             React.createElement(
               'figure',
-              { key: 'coach' },
-              React.createElement('img', { src: '9f9a7e1d-57ff-4ba9-a6fe-f8319d84b775.png', alt: 'Coach — illustration' }),
-              React.createElement('figcaption', null, 'Coach – illustration')
+              { key: 'irish-rail-icr' },
+              React.createElement('img', { src: 'intercity_train.jpg', alt: 'Irish Rail InterCity Railcar' }),
+              React.createElement('figcaption', null, 'Irish Rail InterCity – CC BY 2.0 / Wikimedia Commons')
+            ),
+            React.createElement(
+              'figure',
+              { key: 'irish-rail-dart' },
+              React.createElement('img', { src: 'dart_train.jpg', alt: 'DART train at station' }),
+              React.createElement('figcaption', null, 'Irish Rail DART – CC BY 4.0 / Wikimedia Commons')
+            ),
+            React.createElement(
+              'figure',
+              { key: 'local-link' },
+              React.createElement('img', { src: 'local_link_bus.jpg', alt: 'Local Link bus' }),
+              React.createElement('figcaption', null, 'Local Link (TFI) – illustrative')
             ),
           ]
         ),
@@ -586,7 +622,7 @@
         React.createElement(
           'p',
           { style: { fontSize: '0.7rem', textAlign: 'center', color: '#777', marginBottom: '2rem' } },
-          'Source: CSO THA25 dataset'
+          'Source: CSO THA25 (bus and rail) & TII03 (Luas) datasets'
         )
       );
     }
