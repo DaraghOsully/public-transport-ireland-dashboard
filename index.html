@@ -1,590 +1,598 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Irish Public Transport Dashboard</title>
-    <!-- React and ReactDOM from CDN for a lightweight single page app -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- PapaParse for CSV parsing and Chart.js for charts -->
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <style>
-      /* Basic styles for layout */
-      body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-          Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-        background-color: #f3f4f6;
-        margin: 0;
-        padding: 1rem;
-        color: #1f2937;
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Irish Public Transportation – Malaysia‑style Dashboard</title>
+  <!-- Load React and ReactDOM from CDN for a simple single page app -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Chart.js for charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- PapaParse for CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    /* General page styling */
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f8ff;
+      color: #333;
+      line-height: 1.4;
+    }
+    /* Hero section */
+    .hero {
+      background: linear-gradient(135deg, #e0f7fa, #e0f2f1);
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+    .hero p {
+      margin: 1rem auto;
+      max-width: 600px;
+      font-size: 1rem;
+      color: #444;
+    }
+    /* Update information */
+    .update-info {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #555;
+      margin-bottom: 1rem;
+    }
+    /* Metrics cards */
+    .metrics-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+      margin: 0 1rem 2rem;
+    }
+    .metric-card {
+      flex: 1 1 120px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      text-align: center;
+    }
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .metric-label {
+      font-size: 0.85rem;
+      color: #555;
+      margin-top: 0.25rem;
+    }
+    /* View toggle buttons */
+    .view-toggle {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    .view-toggle button {
+      margin: 0 0.25rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #e0e0e0;
+      color: #333;
+    }
+    .view-toggle button.active {
+      background: #00695c;
+      color: #fff;
+    }
+    /* Chart containers */
+    .chart-container,
+    .services-chart-container {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem;
+      margin: 0 1rem 2rem;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    /* Services metrics */
+    .services-metrics-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin: 0 1rem 2rem;
+    }
+    .service-metric-card {
+      flex: 1 1 140px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    .service-metric-card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+    }
+    .service-metric-values span {
+      display: block;
+      font-size: 0.85rem;
+      color: #555;
+      margin-bottom: 0.25rem;
+    }
+    /* Mode gallery for images */
+    .mode-gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 2rem 1rem;
+    }
+    .mode-gallery figure {
+      margin: 0;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    .mode-gallery img {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      display: block;
+    }
+    .mode-gallery figcaption {
+      padding: 0.5rem;
+      font-size: 0.75rem;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <!-- Main script defining React components and logic -->
+  <script>
+    // Helper: convert ISO week (year, week) to a Date object (Monday of that week)
+    function isoWeekToDate(year, week) {
+      // Create a date representing the first day of the year
+      const simple = new Date(year, 0, 1 + (week - 1) * 7);
+      const dow = simple.getDay();
+      // 0 is Sunday, so adjust to Monday (1)
+      const ISOweekStart = new Date(simple);
+      if (dow <= 4) {
+        ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+      } else {
+        ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
       }
-      h1 {
-        text-align: center;
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-      }
-      .card {
-        background: #ffffff;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-        margin-bottom: 1rem;
-      }
-      .filters {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1rem;
-      }
-      .filter-group {
-        display: flex;
-        flex-direction: column;
-      }
-      .summary-container {
-        display: grid;
-        gap: 1rem;
-      }
-      @media (min-width: 600px) {
-        .summary-container {
-          grid-template-columns: repeat(2, 1fr);
-        }
-      }
-      .summary-card {
-        background: #ffffff;
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-      }
-      .summary-title {
-        font-weight: 600;
-        margin-bottom: 0.25rem;
-      }
-      .summary-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-      }
-      .summary-diff {
-        font-size: 0.875rem;
-      }
-      .chart-container {
-        position: relative;
-        height: 400px;
-      }
+      return ISOweekStart;
+    }
 
-      /* Gallery for mode images */
-      .mode-gallery {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 0.75rem;
-        margin: 1rem 0;
-      }
-      .mode-gallery figure {
-        margin: 0;
-        background: #ffffff;
-        border-radius: 0.5rem;
-        overflow: hidden;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-      }
-      .mode-gallery img {
-        width: 100%;
-        height: 150px;
-        object-fit: cover;
-        display: block;
-      }
-      .mode-gallery figcaption {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.875rem;
-        color: #555555;
-      }
-      @media (max-width: 900px) {
-        .mode-gallery {
-          grid-template-columns: repeat(2, 1fr);
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Image gallery for each transport mode -->
-    <div class="mode-gallery">
-      <figure>
-        <img src="5db86c5c-97f0-468c-84af-14505d5e6895.png" alt="Modern tram" />
-        <figcaption>Tram — illustration</figcaption>
-      </figure>
-      <figure>
-        <img src="05007a05-7b40-40ce-a7c9-39eb218b7792.png" alt="Double-decker bus" />
-        <figcaption>Bus — illustration</figcaption>
-      </figure>
-      <figure>
-        <img src="aa1dc661-cc5f-4bee-ae21-667bbd4a2d16.png" alt="Modern train" />
-        <figcaption>Train — illustration</figcaption>
-      </figure>
-      <figure>
-        <img src="9f9a7e1d-57ff-4ba9-a6fe-f8319d84b775.png" alt="Coach bus" />
-        <figcaption>Coach — illustration</figcaption>
-      </figure>
-    </div>
-    <div id="app"></div>
-    <script type="text/javascript">
-      (function () {
-        const { useState, useEffect, useRef } = React;
-        // Data endpoints from the CSO PxStat API
-        const DATA_JSON_URL =
-          'https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/JSON-stat/2.0/en';
-        // Use a local CSV file stored alongside index.html. When served via
-        // GitHub Pages the CSV is hosted under the same origin so we avoid
-        // cross‑origin issues. See THA25.csv in the repo for the dataset.
-        const DATA_CSV_URL = 'THA25.csv';
+    // Main React component
+    function App() {
+      const { useState, useEffect, useRef } = React;
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [rows, setRows] = useState([]);
+      const [view, setView] = useState('weekly'); // 'weekly' or 'yearly'
+      const [aggAllWeekly, setAggAllWeekly] = useState([]);
+      const [aggAllYearly, setAggAllYearly] = useState([]);
+      const [weeklyByMode, setWeeklyByMode] = useState({});
+      const [yearlyByMode, setYearlyByMode] = useState({});
+      const [metricsAll, setMetricsAll] = useState({ latest: 0, weeklyTrend: 0, monthlyTrend: 0 });
+      const [metricsByMode, setMetricsByMode] = useState({});
+      const [updateInfo, setUpdateInfo] = useState({ lastUpdate: '', nextUpdate: '', dataAsOf: '' });
+      const aggChartRef = useRef(null);
+      const servicesChartRef = useRef(null);
 
-        // Parse JSON-stat response into mode metadata and weekly series
-        function parseJsonStat(json) {
-          const dimTime = json.dimension['TLIST(W1)'].category.index;
-          const modeIds = json.dimension['C03935V04687'].category.index;
-          const modeLabels = json.dimension['C03935V04687'].category.label;
-          const values = json.value;
-          const series = {};
-          let idx = 0;
-          for (let t = 0; t < dimTime.length; t++) {
-            const weekKey = dimTime[t];
-            for (let m = 0; m < modeIds.length; m++) {
-              const modeId = modeIds[m];
-              const value = values[idx++];
-              if (!series[modeId]) series[modeId] = [];
-              series[modeId].push({ week: weekKey, value: value === null ? null : Number(value) });
-            }
-          }
-          const modes = modeIds.map((id) => ({ id, name: modeLabels[id] }));
-          return { modes, series };
-        }
-
-        // Parse CSV fallback into same structure as parseJsonStat
-        function parseCsv(text) {
-          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-          const series = {};
-          const modeSet = new Set();
-          for (const row of parsed.data) {
-            const mode = row['C03935V04687'] || row['MODE'] || row['C03935V04687 '] || row['C03935V04687'];
-            const week = row['TLIST(W1)'] || row['WEEK'] || row['TLIST(W1) '];
-            const valStr = row['value'] || row['VALUE'] || row['Observation'];
-            const value = valStr === undefined || valStr === '' ? null : Number(valStr);
-            if (!mode || !week) continue;
-            modeSet.add(mode);
-            if (!series[mode]) series[mode] = [];
-            series[mode].push({ week, value: isNaN(value) ? null : value });
-          }
-          const modes = Array.from(modeSet).map((id) => ({ id, name: id }));
-          return { modes, series };
-        }
-
-        // Parse a week identifier like 2019W01 into numeric year and week
-        function parseWeek(weekId) {
-          if (!weekId || typeof weekId !== 'string' || weekId.length < 6) {
-            return { year: 0, week: 0 };
-          }
-          const yearPart = weekId.slice(0, 4);
-          const weekPart = weekId.slice(5);
-          const year = parseInt(yearPart, 10);
-          const weekStr = weekPart.replace(/^0+/, '') || '0';
-          const week = parseInt(weekStr, 10);
-          if (isNaN(year) || isNaN(week)) return { year: 0, week: 0 };
-          return { year, week };
-        }
-
-        // Compute maximum week observed for each year
-        function computeMaxWeekByYear(series) {
-          const maxWeeks = {};
-          Object.keys(series).forEach((mode) => {
-            series[mode].forEach(({ week }) => {
-              const { year, week: wk } = parseWeek(week);
-              if (!year || !wk) return;
-              if (!maxWeeks[year] || wk > maxWeeks[year]) {
-                maxWeeks[year] = wk;
+      // Load CSV on mount
+      useEffect(() => {
+        async function load() {
+          try {
+            const response = await fetch('THA25.csv');
+            if (!response.ok) throw new Error('Failed to fetch dataset');
+            const csvText = await response.text();
+            const parsed = Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+            });
+            const data = parsed.data;
+            // Map each row to a simpler object
+            const mapped = [];
+            data.forEach(row => {
+              const modeLabel = row['Mode of Transport'] || row['C03935V04687'] || '';
+              let value = row['VALUE'];
+              if (value === '') return; // skip blank values
+              const val = parseInt(value, 10);
+              const weekCode = row['TLIST(W1)'];
+              if (!weekCode) return;
+              const year = parseInt(weekCode.slice(0, 4), 10);
+              const wkMatch = weekCode.match(/W(\d+)/i);
+              const week = wkMatch ? parseInt(wkMatch[1], 10) : 1;
+              // Only include specific modes; rename for clarity
+              let mode;
+              const lower = modeLabel.toLowerCase();
+              if (lower.includes('metro')) {
+                mode = 'Dublin Bus';
+              } else if (lower.includes('bus') && lower.includes('excluding')) {
+                mode = 'Bus Éireann';
+              } else if (lower.includes('rail')) {
+                mode = 'Rail';
+              } else if (lower.includes('luas')) {
+                mode = 'Luas';
+              } else {
+                // skip aggregate or unknown modes
+                return;
               }
+              mapped.push({ mode, year, week, value: val });
             });
-          });
-          return maxWeeks;
+            setRows(mapped);
+            setLoading(false);
+          } catch (err) {
+            console.error(err);
+            setError(err.message || 'Unknown error');
+            setLoading(false);
+          }
         }
+        load();
+      }, []);
 
-        // Aggregate weekly series into annual totals for all weeks
-        function aggregateByYear(series) {
-          const agg = {};
-          Object.keys(series).forEach((mode) => {
-            series[mode].forEach(({ week, value }) => {
-              if (value === null || isNaN(value)) return;
-              const year = parseInt(week.slice(0, 4), 10);
-              if (!agg[year]) agg[year] = {};
-              if (!agg[year][mode]) agg[year][mode] = 0;
-              agg[year][mode] += value;
-            });
+      // Compute aggregations and metrics when rows loaded
+      useEffect(() => {
+        if (!rows.length) return;
+        // Group by (year, week) across all modes for aggregated weekly
+        const weekMap = {};
+        rows.forEach(r => {
+          const key = `${r.year}-${r.week}`;
+          if (!weekMap[key]) weekMap[key] = 0;
+          weekMap[key] += r.value;
+        });
+        const aggWeekly = Object.keys(weekMap)
+          .map(key => {
+            const [year, week] = key.split('-').map(n => parseInt(n, 10));
+            return { year, week, value: weekMap[key] };
+          })
+          .sort((a, b) => a.year - b.year || a.week - b.week);
+        setAggAllWeekly(aggWeekly);
+        // Group by year for aggregated yearly
+        const yearMap = {};
+        aggWeekly.forEach(item => {
+          if (!yearMap[item.year]) yearMap[item.year] = 0;
+          yearMap[item.year] += item.value;
+        });
+        const aggYearly = Object.keys(yearMap)
+          .map(y => ({ year: parseInt(y, 10), value: yearMap[y] }))
+          .sort((a, b) => a.year - b.year);
+        setAggAllYearly(aggYearly);
+        // Group by mode
+        const byModeMap = {};
+        rows.forEach(r => {
+          const key = `${r.year}-${r.week}`;
+          if (!byModeMap[r.mode]) byModeMap[r.mode] = {};
+          if (!byModeMap[r.mode][key]) byModeMap[r.mode][key] = 0;
+          byModeMap[r.mode][key] += r.value;
+        });
+        const weeklyBy = {};
+        Object.keys(byModeMap).forEach(mode => {
+          const arr = Object.keys(byModeMap[mode])
+            .map(key => {
+              const [year, week] = key.split('-').map(n => parseInt(n, 10));
+              return { year, week, value: byModeMap[mode][key] };
+            })
+            .sort((a, b) => a.year - b.year || a.week - b.week);
+          weeklyBy[mode] = arr;
+        });
+        setWeeklyByMode(weeklyBy);
+        // Yearly by mode
+        const yearlyBy = {};
+        Object.keys(weeklyBy).forEach(mode => {
+          const yearMapMode = {};
+          weeklyBy[mode].forEach(item => {
+            if (!yearMapMode[item.year]) yearMapMode[item.year] = 0;
+            yearMapMode[item.year] += item.value;
           });
-          return agg;
+          yearlyBy[mode] = Object.keys(yearMapMode)
+            .map(y => ({ year: parseInt(y, 10), value: yearMapMode[y] }))
+            .sort((a, b) => a.year - b.year);
+        });
+        setYearlyByMode(yearlyBy);
+        // Compute metrics for aggregated weekly
+        function computeMetrics(dataArr) {
+          const n = dataArr.length;
+          if (n === 0) return { latest: 0, weeklyTrend: 0, monthlyTrend: 0 };
+          const latest = dataArr[n - 1].value;
+          const prev = n > 1 ? dataArr[n - 2].value : latest;
+          const weeklyTrend = prev === 0 ? 0 : ((latest - prev) / prev) * 100;
+          // monthly: last 4 weeks vs previous 4 weeks
+          const last4 = dataArr.slice(-4);
+          const sumLast4 = last4.reduce((s, d) => s + d.value, 0);
+          const prev4 = dataArr.slice(-8, -4);
+          const sumPrev4 = prev4.reduce((s, d) => s + d.value, 0);
+          const monthlyTrend = sumPrev4 === 0 ? 0 : ((sumLast4 - sumPrev4) / sumPrev4) * 100;
+          return { latest, weeklyTrend, monthlyTrend };
         }
-
-        // Aggregate weekly series within a given week range [startWeek, endWeek]
-        function aggregateByYearWeekRange(series, startWeek, endWeek) {
-          const agg = {};
-          Object.keys(series).forEach((mode) => {
-            series[mode].forEach(({ week, value }) => {
-              if (value === null || isNaN(value)) return;
-              const { year, week: wk } = parseWeek(week);
-              if (!year || !wk) return;
-              if (wk < startWeek || wk > endWeek) return;
-              if (!agg[year]) agg[year] = {};
-              if (!agg[year][mode]) agg[year][mode] = 0;
-              agg[year][mode] += value;
+        // Aggregated metrics
+        setMetricsAll(computeMetrics(aggWeekly));
+        // Metrics by mode
+        const mByMode = {};
+        Object.keys(weeklyBy).forEach(mode => {
+          mByMode[mode] = computeMetrics(weeklyBy[mode]);
+        });
+        setMetricsByMode(mByMode);
+        // Compute update dates
+        const lastItem = aggWeekly[aggWeekly.length - 1];
+        if (lastItem) {
+          const lastDate = isoWeekToDate(lastItem.year, lastItem.week);
+          const endDate = new Date(lastDate);
+          endDate.setDate(endDate.getDate() + 6); // end of week (Sunday)
+          const nextDate = new Date(endDate);
+          nextDate.setDate(nextDate.getDate() + 7);
+          const format = (d) =>
+            d.toLocaleDateString('en-GB', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
             });
-          });
-          return agg;
+          const lastUpdateStr = format(endDate) + ', 12:00';
+          const nextUpdateStr = format(nextDate) + ', 12:00';
+          const dataAsOf = format(endDate) + ', 23:59';
+          setUpdateInfo({ lastUpdate: lastUpdateStr, nextUpdate: nextUpdateStr, dataAsOf });
         }
+      }, [rows]);
 
-        // Compute CAGR-based projections with option to exclude the last year if partial
-        function computeProjectionsAdjusted(agg, years, modes, horizon = 5, excludeLast) {
-          const projections = {};
-          if (!years || years.length === 0) return projections;
-          const lastIndex = years.length - 1;
-          const lastFullIndex = excludeLast && years.length > 1 ? years.length - 2 : lastIndex;
-          const firstYear = years[0];
-          const lastFullYear = years[lastFullIndex];
-          const periods = lastFullYear - firstYear;
-          modes.forEach((mode) => {
-            const id = mode.id;
-            const startVal = agg[firstYear]?.[id] ?? 0;
-            const endVal = agg[lastFullYear]?.[id] ?? 0;
-            let cagr = 0;
-            if (startVal > 0 && periods > 0) {
-              cagr = Math.pow(endVal / startVal, 1 / periods) - 1;
-            }
-            let base = agg[years[lastIndex]]?.[id] ?? 0;
-            projections[id] = [];
-            for (let i = 1; i <= horizon; i++) {
-              base = base * (1 + cagr);
-              projections[id].push({ year: years[lastIndex] + i, value: base });
-            }
-          });
-          return projections;
-        }
-
-        function App() {
-          const [loading, setLoading] = useState(true);
-          const [error, setError] = useState(null);
-          const [modes, setModes] = useState([]);
-          const [series, setSeries] = useState({});
-          const [selectedModes, setSelectedModes] = useState([]);
-          const [yearRange, setYearRange] = useState([2019, 2025]);
-          const [weekRange, setWeekRange] = useState([1, 52]);
-          const [maxWeek, setMaxWeek] = useState(52);
-          const [agg, setAgg] = useState({});
-          const chartRef = useRef(null);
-          const chartInstanceRef = useRef(null);
-
-          // Load dataset on mount. We always fetch the CSV file from the same origin
-          // (THA25.csv) which is stored in the repository alongside index.html.
-          useEffect(() => {
-            async function load() {
-              try {
-                const resp = await fetch(DATA_CSV_URL);
-                if (!resp.ok) throw new Error('CSV fetch failed');
-                const text = await resp.text();
-                const { modes: mds, series: srs } = parseCsv(text);
-                const aggregated = aggregateByYear(srs);
-                const mwByYear = computeMaxWeekByYear(srs);
-                const maxVal = Math.max(...Object.values(mwByYear));
-                setModes(mds);
-                setSeries(srs);
-                setAgg(aggregated);
-                setMaxWeek(maxVal);
-                setWeekRange([1, maxVal]);
-                setLoading(false);
-                setSelectedModes(mds.map((m) => m.id));
-              } catch (err) {
-                setError(err.message);
-                setLoading(false);
-              }
-            }
-            load();
-          }, []);
-
-          // Draw or update chart when dependencies change
-          useEffect(() => {
-            if (loading || selectedModes.length === 0) return;
-            drawChart();
-          }, [loading, selectedModes, yearRange, weekRange, series]);
-
-          function drawChart() {
-            const ctx = chartRef.current.getContext('2d');
-            // Destroy existing instance
-            if (chartInstanceRef.current) {
-              chartInstanceRef.current.destroy();
-            }
-            // Compute filtered aggregates within selected week range
-            const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
-            const allYears = Object.keys(filteredAgg)
-              .map((y) => Number(y))
-              .sort((a, b) => a - b);
-            const [startYear, endYear] = yearRange;
-            const visibleYears = allYears.filter((y) => y >= startYear && y <= endYear);
-            // Determine if the last year is partial (selected week range ends before max week for that year)
-            const maxWeekForEndYear = computeMaxWeekByYear(series)[endYear] || maxWeek;
-            const isPartial = weekRange[1] < maxWeekForEndYear;
-            // Compute projections
-            const projections = computeProjectionsAdjusted(filteredAgg, allYears, modes, 5, isPartial);
-            // Build labels combining history and projection years
-            const histLabels = visibleYears.map((y) => String(y));
-            const projYearSet = new Set();
-            selectedModes.forEach((id) => {
-              projections[id]?.forEach((p) => {
-                projYearSet.add(String(p.year));
-              });
-            });
-            const projLabels = Array.from(projYearSet).filter((y) => !histLabels.includes(y)).sort();
-            const labels = histLabels.concat(projLabels);
-            // Assign colours (cycle through a palette)
-            const palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
-            const datasets = [];
-            selectedModes.forEach((id, idx) => {
-              const colour = palette[idx % palette.length];
-              // Historical data points (null for projection labels)
-              const histData = labels.map((label) => {
-                const y = parseInt(label, 10);
-                return histLabels.includes(label) ? filteredAgg[y]?.[id] ?? null : null;
-              });
-              datasets.push({
-                label: modes.find((m) => m.id === id)?.name || id,
-                data: histData,
-                borderColor: colour,
-                backgroundColor: colour,
-                tension: 0.2,
-                spanGaps: true,
-              });
-              // Projection line (dashed)
-              const projData = labels.map((label) => {
-                const entry = projections[id]?.find((p) => String(p.year) === label);
-                return entry ? entry.value : null;
-              });
-              datasets.push({
-                label: (modes.find((m) => m.id === id)?.name || id) + ' (proj)',
-                data: projData,
-                borderColor: colour,
-                backgroundColor: colour,
-                borderDash: [5, 5],
-                tension: 0.2,
-                spanGaps: true,
-              });
-            });
-            const chart = new Chart(ctx, {
-              type: 'line',
-              data: { labels, datasets },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'nearest', axis: 'x', intersect: false },
-                plugins: { legend: { position: 'top' } },
-                scales: {
-                  y: {
-                    ticks: { callback: (value) => value.toLocaleString('en-IE') },
-                    title: { display: true, text: 'Journeys' },
-                  },
-                  x: {
-                    title: { display: true, text: 'Year' },
-                  },
-                },
+      // Draw aggregated chart
+      useEffect(() => {
+        if (!aggAllWeekly.length) return;
+        const labels = view === 'weekly'
+          ? aggAllWeekly.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`)
+          : aggAllYearly.map(item => `${item.year}`);
+        const dataVals = view === 'weekly'
+          ? aggAllWeekly.map(item => item.value)
+          : aggAllYearly.map(item => item.value);
+        const ctx = document.getElementById('aggChart').getContext('2d');
+        if (aggChartRef.current) aggChartRef.current.destroy();
+        aggChartRef.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'All Services',
+                data: dataVals,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 0,
               },
-            });
-            chartInstanceRef.current = chart;
-          }
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { display: true, title: { display: false } },
+              y: { beginAtZero: true },
+            },
+            plugins: { legend: { display: true, position: 'top' } },
+          },
+        });
+      }, [aggAllWeekly, aggAllYearly, view]);
 
-          // Summary cards using filtered aggregate
-          const filteredAgg = aggregateByYearWeekRange(series, weekRange[0], weekRange[1]);
-          const [startYear, endYear] = yearRange;
-          const summaryCards = selectedModes.map((id) => {
-            const lastVal = filteredAgg[endYear]?.[id] ?? 0;
-            const prevVal = filteredAgg[endYear - 1]?.[id] ?? 0;
-            const diff = lastVal - prevVal;
-            const diffPct = prevVal ? (diff / prevVal) * 100 : 0;
-            return React.createElement(
-              'div',
-              { key: id, className: 'summary-card' },
-              React.createElement('div', { className: 'summary-title' }, modes.find((m) => m.id === id)?.name || id),
-              React.createElement('div', { className: 'summary-value' }, lastVal ? lastVal.toLocaleString('en-IE') : 'N/A'),
-              React.createElement(
-                'div',
-                {
-                  className: 'summary-diff',
-                  style: { color: diff >= 0 ? '#059669' : '#b91c1c' },
-                },
-                (diff >= 0 ? '+' : '') + diff.toLocaleString('en-IE') + ' (' + diffPct.toFixed(1) + '%)',
-              ),
-              React.createElement('div', { style: { fontSize: '0.75rem', color: '#6b7280' } },
-                endYear + ' vs ' + (endYear - 1) + ' (Weeks ' + weekRange[0] + '\u2013' + weekRange[1] + ')'),
-            );
-          });
-
-          if (loading) {
-            return React.createElement('div', { className: 'card' }, 'Loading data…');
-          }
-          if (error) {
-            return React.createElement('div', { className: 'card', style: { color: 'red' } }, 'Error: ' + error);
-          }
-
-          const yearsAvailable = Object.keys(agg)
-            .map((y) => Number(y))
-            .sort((a, b) => a - b);
-          return React.createElement(
-            'div',
-            null,
-            React.createElement('h1', null, 'Irish Public Transport Dashboard'),
-            // Filters
-            React.createElement(
-              'div',
-              { className: 'card filters' },
-              // Start year
-              React.createElement(
-                'div',
-                { className: 'filter-group' },
-                React.createElement('label', { htmlFor: 'startYear' }, 'Start year'),
-                React.createElement(
-                  'select',
-                  {
-                    id: 'startYear',
-                    value: yearRange[0],
-                    onChange: (e) => {
-                      const newStart = Number(e.target.value);
-                      setYearRange([newStart, Math.max(newStart, yearRange[1])]);
-                    },
-                  },
-                  yearsAvailable.map((y) =>
-                    React.createElement(
-                      'option',
-                      { key: y, value: y, disabled: y > yearRange[1] },
-                      y,
-                    ),
-                  ),
-                ),
-              ),
-              // End year
-              React.createElement(
-                'div',
-                { className: 'filter-group' },
-                React.createElement('label', { htmlFor: 'endYear' }, 'End year'),
-                React.createElement(
-                  'select',
-                  {
-                    id: 'endYear',
-                    value: yearRange[1],
-                    onChange: (e) => {
-                      const newEnd = Number(e.target.value);
-                      setYearRange([Math.min(newEnd, yearRange[0]), newEnd]);
-                    },
-                  },
-                  yearsAvailable.map((y) =>
-                    React.createElement(
-                      'option',
-                      { key: y, value: y, disabled: y < yearRange[0] },
-                      y,
-                    ),
-                  ),
-                ),
-              ),
-              // Start week
-              React.createElement(
-                'div',
-                { className: 'filter-group' },
-                React.createElement('label', { htmlFor: 'startWeek' }, 'Start week'),
-                React.createElement(
-                  'select',
-                  {
-                    id: 'startWeek',
-                    value: weekRange[0],
-                    onChange: (e) => {
-                      const val = Number(e.target.value);
-                      setWeekRange([val, Math.max(val, weekRange[1])]);
-                    },
-                  },
-                  Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
-                    React.createElement(
-                      'option',
-                      { key: w, value: w, disabled: w > weekRange[1] },
-                      w,
-                    ),
-                  ),
-                ),
-              ),
-              // End week
-              React.createElement(
-                'div',
-                { className: 'filter-group' },
-                React.createElement('label', { htmlFor: 'endWeek' }, 'End week'),
-                React.createElement(
-                  'select',
-                  {
-                    id: 'endWeek',
-                    value: weekRange[1],
-                    onChange: (e) => {
-                      const val = Number(e.target.value);
-                      setWeekRange([Math.min(val, weekRange[0]), val]);
-                    },
-                  },
-                  Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) =>
-                    React.createElement(
-                      'option',
-                      { key: w, value: w, disabled: w < weekRange[0] },
-                      w,
-                    ),
-                  ),
-                ),
-              ),
-              // Mode checkboxes
-              React.createElement(
-                'div',
-                { className: 'filter-group', style: { flex: 1 } },
-                React.createElement('span', null, 'Modes'),
-                React.createElement(
-                  'div',
-                  { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
-                  modes.map((mode) =>
-                    React.createElement(
-                      'label',
-                      { key: mode.id, style: { display: 'flex', alignItems: 'center' } },
-                      React.createElement('input', {
-                        type: 'checkbox',
-                        checked: selectedModes.includes(mode.id),
-                        onChange: () => {
-                          setSelectedModes((prev) =>
-                            prev.includes(mode.id)
-                              ? prev.filter((m) => m !== mode.id)
-                              : prev.concat(mode.id),
-                          );
-                        },
-                      }),
-                      React.createElement('span', { style: { marginLeft: '0.25rem' } }, mode.name),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Summary cards
-            React.createElement('div', { className: 'summary-container' }, summaryCards),
-            // Chart container
-            React.createElement(
-              'div',
-              { className: 'card' },
-              React.createElement('h2', { style: { marginBottom: '0.5rem' } }, 'Annual passenger journeys'),
-              React.createElement('div', { className: 'chart-container' },
-                React.createElement('canvas', { ref: chartRef }),
-              ),
-            ),
-            // Note
-            React.createElement(
-              'p',
-              { style: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem' } },
-              'Source: CSO THA25 dataset. Values reflect cumulative journeys within the selected week range. Projections use CAGR derived from complete years and start from the last observed value.',
-            ),
-          );
+      // Draw services (by mode) chart
+      useEffect(() => {
+        const modes = Object.keys(weeklyByMode);
+        if (modes.length === 0) return;
+        let labels;
+        if (view === 'weekly') {
+          labels = aggAllWeekly.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`);
+        } else {
+          labels = aggAllYearly.map(item => `${item.year}`);
         }
+        const datasets = modes.map(mode => {
+          let data;
+          if (view === 'weekly') {
+            // Create a map for quick lookup
+            const map = {};
+            weeklyByMode[mode].forEach(item => {
+              map[`${item.year}-${item.week}`] = item.value;
+            });
+            data = aggAllWeekly.map(item => map[`${item.year}-${item.week}`] || 0);
+          } else {
+            const map = {};
+            yearlyByMode[mode].forEach(item => {
+              map[item.year] = item.value;
+            });
+            data = aggAllYearly.map(item => map[item.year] || 0);
+          }
+          return {
+            label: mode,
+            data,
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 0,
+          };
+        });
+        const ctx = document.getElementById('servicesChart').getContext('2d');
+        if (servicesChartRef.current) servicesChartRef.current.destroy();
+        servicesChartRef.current = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { display: true, title: { display: false } },
+              y: { beginAtZero: true },
+            },
+            plugins: { legend: { display: true, position: 'top' } },
+          },
+        });
+      }, [weeklyByMode, yearlyByMode, aggAllWeekly, aggAllYearly, view]);
 
-        ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
-      })();
-    </script>
-  </body>
+      if (loading) {
+        return React.createElement('div', { style: { padding: '2rem', textAlign: 'center' } }, 'Loading data...');
+      }
+      if (error) {
+        return React.createElement('div', { style: { padding: '2rem', color: 'red', textAlign: 'center' } }, `Error: ${error}`);
+      }
+
+      // Render metrics for each service mode
+      const serviceCards = Object.keys(metricsByMode).map(mode => {
+        const m = metricsByMode[mode];
+        const trendWeek = m.weeklyTrend.toFixed(1) + '%';
+        const trendMonth = m.monthlyTrend.toFixed(1) + '%';
+        return React.createElement(
+          'div',
+          { className: 'service-metric-card', key: mode },
+          React.createElement('h3', null, mode),
+          React.createElement('div', { className: 'service-metric-values' }, [
+            React.createElement('span', { key: 'latest' }, `Latest: ${m.latest.toLocaleString()}`),
+            React.createElement('span', { key: 'week' }, `Trend (weekly): ${trendWeek}`),
+            React.createElement('span', { key: 'month' }, `Trend (4w): ${trendMonth}`),
+          ])
+        );
+      });
+
+      // Build the page structure using React.createElement
+      return React.createElement(
+        React.Fragment,
+        null,
+        // Hero section
+        React.createElement(
+          'section',
+          { className: 'hero' },
+          React.createElement('h1', null, 'Irish Public Transportation Dashboard'),
+          React.createElement(
+            'p',
+            null,
+            'Drawing on high‑frequency data from operators of Ireland\'s public transportation services, this dashboard brings you the latest trends in public transport ridership.'
+          )
+        ),
+        // Update info
+        React.createElement(
+          'div',
+          { className: 'update-info' },
+          `Last updated: ${updateInfo.lastUpdate} | Next update: ${updateInfo.nextUpdate} | Data as of ${updateInfo.dataAsOf}`
+        ),
+        // Metrics for aggregated all services
+        React.createElement(
+          'div',
+          { className: 'metrics-container' },
+          [
+            React.createElement(
+              'div',
+              { className: 'metric-card', key: 'latest' },
+              React.createElement('div', { className: 'metric-value' }, metricsAll.latest.toLocaleString()),
+              React.createElement('div', { className: 'metric-label' }, 'Latest Week')
+            ),
+            React.createElement(
+              'div',
+              { className: 'metric-card', key: 'weekTrend' },
+              React.createElement('div', { className: 'metric-value' },
+                (metricsAll.weeklyTrend >= 0 ? '+' : '') + metricsAll.weeklyTrend.toFixed(1) + '%'
+              ),
+              React.createElement('div', { className: 'metric-label' }, 'Trend (weekly)')
+            ),
+            React.createElement(
+              'div',
+              { className: 'metric-card', key: 'monthTrend' },
+              React.createElement('div', { className: 'metric-value' },
+                (metricsAll.monthlyTrend >= 0 ? '+' : '') + metricsAll.monthlyTrend.toFixed(1) + '%'
+              ),
+              React.createElement('div', { className: 'metric-label' }, 'Trend (4w)')
+            ),
+          ]
+        ),
+        // View toggle
+        React.createElement(
+          'div',
+          { className: 'view-toggle' },
+          [
+            React.createElement(
+              'button',
+              {
+                key: 'weekly',
+                className: view === 'weekly' ? 'active' : '',
+                onClick: () => setView('weekly'),
+              },
+              'Weekly'
+            ),
+            React.createElement(
+              'button',
+              {
+                key: 'yearly',
+                className: view === 'yearly' ? 'active' : '',
+                onClick: () => setView('yearly'),
+              },
+              'Yearly'
+            ),
+          ]
+        ),
+        // Aggregated chart
+        React.createElement(
+          'div',
+          { className: 'chart-container' },
+          React.createElement('h2', null, 'Ridership Trend – All Services'),
+          React.createElement('div', { style: { height: '300px' } },
+            React.createElement('canvas', { id: 'aggChart' })
+          )
+        ),
+        // Services chart
+        React.createElement(
+          'div',
+          { className: 'services-chart-container' },
+          React.createElement('h2', null, 'Ridership Trend by Service'),
+          React.createElement('div', { style: { height: '300px' } },
+            React.createElement('canvas', { id: 'servicesChart' })
+          )
+        ),
+        // Services metrics cards
+        React.createElement(
+          'div',
+          { className: 'services-metrics-container' },
+          serviceCards
+        ),
+        // Mode gallery with images
+        React.createElement(
+          'div',
+          { className: 'mode-gallery' },
+          [
+            React.createElement(
+              'figure',
+              { key: 'tram' },
+              React.createElement('img', { src: '5db86c5c-97f0-468c-84af-14505d5e6895.png', alt: 'Tram — illustration' }),
+              React.createElement('figcaption', null, 'Tram – illustration')
+            ),
+            React.createElement(
+              'figure',
+              { key: 'train' },
+              React.createElement('img', { src: 'aa1dc661-cc5f-4bee-ae21-667bbd4a2d16.png', alt: 'Train — illustration' }),
+              React.createElement('figcaption', null, 'Train – illustration')
+            ),
+            React.createElement(
+              'figure',
+              { key: 'bus' },
+              React.createElement('img', { src: '05007a05-7b40-40ce-a7c9-39eb218b7792.png', alt: 'Bus — illustration' }),
+              React.createElement('figcaption', null, 'Bus – illustration')
+            ),
+            React.createElement(
+              'figure',
+              { key: 'coach' },
+              React.createElement('img', { src: '9f9a7e1d-57ff-4ba9-a6fe-f8319d84b775.png', alt: 'Coach — illustration' }),
+              React.createElement('figcaption', null, 'Coach – illustration')
+            ),
+          ]
+        ),
+        // Data source note
+        React.createElement(
+          'p',
+          { style: { fontSize: '0.7rem', textAlign: 'center', color: '#777', marginBottom: '2rem' } },
+          'Source: CSO THA25 dataset'
+        )
+      );
+    }
+    // Mount the app
+    const root = ReactDOM.createRoot(document.getElementById('app'));
+    root.render(React.createElement(App));
+  </script>
+</body>
 </html>
