@@ -205,6 +205,8 @@
             const thaParsed = Papa.parse(thaCsv, { header: true, skipEmptyLines: true });
             const tiiParsed = Papa.parse(tiiCsv, { header: true, skipEmptyLines: true });
             const mapped = [];
+            // Determine the maximum week available for each year in the THA25 data.
+            const maxWeekByYear = {};
             // Process THA25 rows
             thaParsed.data.forEach(row => {
               const modeLabel = row['Mode of Transport'] || row['C03935V04687'] || '';
@@ -230,6 +232,10 @@
                 // skip unknown categories and Luas (handled separately)
                 return;
               }
+              // Track the maximum week per year for THA25 modes
+              if (!maxWeekByYear[year] || week > maxWeekByYear[year]) {
+                maxWeekByYear[year] = week;
+              }
               mapped.push({ mode, year, week, value: val });
             });
             // Process TII03 rows (Luas)
@@ -245,7 +251,13 @@
               const year = parseInt(weekCode.slice(0, 4), 10);
               const wkMatch = weekCode.match(/W(\d+)/i);
               const week = wkMatch ? parseInt(wkMatch[1], 10) : 1;
-              mapped.push({ mode: 'Luas', year, week, value: val });
+              // Only include Luas data up to the maximum week available in other modes
+              // for the corresponding year. This prevents Luas weeks (e.g., 28-30) from
+              // extending beyond the available data for bus/rail services (up to week 27).
+              const maxWeek = maxWeekByYear[year];
+              if (maxWeek === undefined || week <= maxWeek) {
+                mapped.push({ mode: 'Luas', year, week, value: val });
+              }
             });
             setRows(mapped);
             setLoading(false);
@@ -613,8 +625,8 @@
             React.createElement(
               'figure',
               { key: 'local-link' },
-              React.createElement('img', { src: 'local_link_bus.jpg', alt: 'Local Link bus' }),
-              React.createElement('figcaption', null, 'Local Link (TFI) – illustrative')
+              React.createElement('img', { src: 'local_link_bus.jpg', alt: 'TFI Local Link bus' }),
+              React.createElement('figcaption', null, 'TFI Local Link bus')
             ),
           ]
         ),
