@@ -9,9 +9,6 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <!-- Chart.js for charts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- noUiSlider for date range slider -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.7.0/nouislider.min.css" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.7.0/nouislider.min.js"></script>
   <!-- PapaParse for CSV parsing -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -150,6 +147,42 @@
       color: #555;
       text-align: center;
     }
+
+    /* Range slider controls for selecting the date window */
+    .range-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .range-controls input[type="range"] {
+      flex: 1 1 auto;
+      height: 4px;
+      appearance: none;
+      background: #e0e0e0;
+      border-radius: 2px;
+      outline: none;
+      margin: 0;
+      padding: 0;
+    }
+    .range-controls input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      /* Use a blue tone for the thumb to better match the Malaysian dashboard aesthetic */
+      background: #1976d2;
+      cursor: pointer;
+      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
+    .range-controls input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #1976d2;
+      cursor: pointer;
+      box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body>
@@ -194,7 +227,9 @@
       // selected subset of data.
       const [rangeStart, setRangeStart] = useState(0);
       const [rangeEnd, setRangeEnd] = useState(0);
-      const sliderRef = useRef(null);
+      // Note: We no longer use an external slider library.  The sliderRef
+      // declaration has been removed.
+      // To update the range when data changes, see the useEffect below.
 
       // Load CSV on mount
       useEffect(() => {
@@ -414,8 +449,9 @@
                 borderWidth: 2,
                 pointRadius: 0,
                 fill: true,
-                borderColor: '#00695c',
-                backgroundColor: 'rgba(0, 105, 92, 0.15)',
+                // Use a blue palette reminiscent of the Malaysian dashboard for the aggregate line
+                borderColor: '#1976d2',
+                backgroundColor: 'rgba(25, 118, 210, 0.15)',
               },
             ],
           },
@@ -440,40 +476,18 @@
         });
       }, [aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
 
-      // Initialize and update the date range slider whenever the view or aggregated data changes.
+      // When the view or aggregated data changes, reset the range to encompass the
+      // entire available dataset.  This ensures the range inputs always have
+      // valid bounds (0 to length-1) and the charts render the full series by
+      // default.  The range controls will subsequently update these values.
       useEffect(() => {
-        const baseAgg = view === 'weekly' ? aggAllWeekly : aggAllYearly;
-        const length = baseAgg.length;
-        if (!length) return;
-        const maxIdx = length - 1;
-        // Reset range if out of bounds or if range indices are uninitialized (both 0 and length > 1)
-        if (rangeEnd > maxIdx || rangeStart < 0 || rangeStart > rangeEnd) {
+        if (view === 'weekly' && aggAllWeekly.length) {
           setRangeStart(0);
-          setRangeEnd(maxIdx);
+          setRangeEnd(aggAllWeekly.length - 1);
+        } else if (view === 'yearly' && aggAllYearly.length) {
+          setRangeStart(0);
+          setRangeEnd(aggAllYearly.length - 1);
         }
-        const sliderElem = document.getElementById('rangeSlider');
-        if (!sliderElem) return;
-        // Destroy any existing slider instance
-        if (sliderRef.current && sliderRef.current.noUiSlider) {
-          sliderRef.current.noUiSlider.destroy();
-        }
-        // Create a new slider with two handles
-        noUiSlider.create(sliderElem, {
-          start: [0, maxIdx],
-          connect: true,
-          step: 1,
-          range: {
-            min: 0,
-            max: maxIdx,
-          },
-        });
-        sliderElem.noUiSlider.on('update', (values) => {
-          const start = Math.round(values[0]);
-          const end = Math.round(values[1]);
-          setRangeStart(start);
-          setRangeEnd(end);
-        });
-        sliderRef.current = sliderElem;
       }, [view, aggAllWeekly, aggAllYearly]);
 
       // Draw services (by mode) chart
@@ -553,6 +567,27 @@
           },
         });
       }, [weeklyByMode, yearlyByMode, aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
+
+      // Event handlers for the range sliders.  They update the start and end
+      // indices while ensuring the start is not greater than the end and the
+      // end is not less than the start.  These handlers are used by the
+      // range input elements in the markup below.
+      const handleStartChange = (e) => {
+        const val = parseInt(e.target.value, 10);
+        if (val <= rangeEnd) {
+          setRangeStart(val);
+        }
+      };
+      const handleEndChange = (e) => {
+        const val = parseInt(e.target.value, 10);
+        if (val >= rangeStart) {
+          setRangeEnd(val);
+        }
+      };
+      // Compute the maximum index for the current view to set the range inputs
+      const maxRangeIndex = view === 'weekly'
+        ? (aggAllWeekly.length ? aggAllWeekly.length - 1 : 0)
+        : (aggAllYearly.length ? aggAllYearly.length - 1 : 0);
 
       if (loading) {
         return React.createElement('div', { style: { padding: '2rem', textAlign: 'center' } }, 'Loading data...');
@@ -662,8 +697,32 @@
             React.createElement('div', { key: 'canvas-wrap', style: { height: '300px' } },
               React.createElement('canvas', { id: 'aggChart' })
             ),
-            // Range slider for selecting the date range
-            React.createElement('div', { key: 'slider', id: 'rangeSlider', style: { marginTop: '1rem' } })
+            // Simple range inputs to select the visible date range.  The first input
+            // controls the start index and the second controls the end index.  Both
+            // inputs share the same min (0) and max (maxRangeIndex) values.  The
+            // onChange handlers ensure the range remains valid.
+            React.createElement(
+              'div',
+              { className: 'range-controls', key: 'range-controls' },
+              [
+                React.createElement('input', {
+                  key: 'range-start',
+                  type: 'range',
+                  min: 0,
+                  max: maxRangeIndex,
+                  value: rangeStart,
+                  onChange: handleStartChange,
+                }),
+                React.createElement('input', {
+                  key: 'range-end',
+                  type: 'range',
+                  min: 0,
+                  max: maxRangeIndex,
+                  value: rangeEnd,
+                  onChange: handleEndChange,
+                }),
+              ]
+            )
           ]
         ),
         // Services chart
