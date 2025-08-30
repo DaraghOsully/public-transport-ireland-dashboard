@@ -9,6 +9,9 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <!-- Chart.js for charts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- noUiSlider for date range slider -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.7.0/nouislider.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.7.0/nouislider.min.js"></script>
   <!-- PapaParse for CSV parsing -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -184,6 +187,14 @@
       const [updateInfo, setUpdateInfo] = useState({ lastUpdate: '', nextUpdate: '', dataAsOf: '' });
       const aggChartRef = useRef(null);
       const servicesChartRef = useRef(null);
+
+      // State for date range slider.  These indices correspond to positions in the
+      // aggregated weekly or yearly arrays, depending on the current view.  The
+      // slider will update these values and the charts will reflect the
+      // selected subset of data.
+      const [rangeStart, setRangeStart] = useState(0);
+      const [rangeEnd, setRangeEnd] = useState(0);
+      const sliderRef = useRef(null);
 
       // Load CSV on mount
       useEffect(() => {
@@ -378,13 +389,17 @@
 
       // Draw aggregated chart
       useEffect(() => {
-        if (!aggAllWeekly.length) return;
+        const baseAgg = view === 'weekly' ? aggAllWeekly : aggAllYearly;
+        const length = baseAgg.length;
+        if (!length) return;
+        // Determine valid range indices (clamp to available length)
+        const startIdx = Math.max(0, Math.min(rangeStart, length - 1));
+        const endIdx = Math.max(startIdx, Math.min(rangeEnd, length - 1));
+        const sliceAgg = baseAgg.slice(startIdx, endIdx + 1);
         const labels = view === 'weekly'
-          ? aggAllWeekly.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`)
-          : aggAllYearly.map(item => `${item.year}`);
-        const dataVals = view === 'weekly'
-          ? aggAllWeekly.map(item => item.value)
-          : aggAllYearly.map(item => item.value);
+          ? sliceAgg.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`)
+          : sliceAgg.map(item => `${item.year}`);
+        const dataVals = sliceAgg.map(item => item.value);
         const ctx = document.getElementById('aggChart').getContext('2d');
         if (aggChartRef.current) aggChartRef.current.destroy();
         aggChartRef.current = new Chart(ctx, {
@@ -398,6 +413,9 @@
                 tension: 0.3,
                 borderWidth: 2,
                 pointRadius: 0,
+                fill: true,
+                borderColor: '#00695c',
+                backgroundColor: 'rgba(0, 105, 92, 0.15)',
               },
             ],
           },
@@ -405,46 +423,109 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-              x: { display: true, title: { display: false } },
-              y: { beginAtZero: true },
+              x: {
+                display: true,
+                title: { display: false },
+                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: { color: '#555' },
+              },
+              y: {
+                beginAtZero: true,
+                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: { color: '#555' },
+              },
             },
             plugins: { legend: { display: true, position: 'top' } },
           },
         });
-      }, [aggAllWeekly, aggAllYearly, view]);
+      }, [aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
+
+      // Initialize and update the date range slider whenever the view or aggregated data changes.
+      useEffect(() => {
+        const baseAgg = view === 'weekly' ? aggAllWeekly : aggAllYearly;
+        const length = baseAgg.length;
+        if (!length) return;
+        const maxIdx = length - 1;
+        // Reset range if out of bounds or if range indices are uninitialized (both 0 and length > 1)
+        if (rangeEnd > maxIdx || rangeStart < 0 || rangeStart > rangeEnd) {
+          setRangeStart(0);
+          setRangeEnd(maxIdx);
+        }
+        const sliderElem = document.getElementById('rangeSlider');
+        if (!sliderElem) return;
+        // Destroy any existing slider instance
+        if (sliderRef.current && sliderRef.current.noUiSlider) {
+          sliderRef.current.noUiSlider.destroy();
+        }
+        // Create a new slider with two handles
+        noUiSlider.create(sliderElem, {
+          start: [0, maxIdx],
+          connect: true,
+          step: 1,
+          range: {
+            min: 0,
+            max: maxIdx,
+          },
+        });
+        sliderElem.noUiSlider.on('update', (values) => {
+          const start = Math.round(values[0]);
+          const end = Math.round(values[1]);
+          setRangeStart(start);
+          setRangeEnd(end);
+        });
+        sliderRef.current = sliderElem;
+      }, [view, aggAllWeekly, aggAllYearly]);
 
       // Draw services (by mode) chart
       useEffect(() => {
         const modes = Object.keys(weeklyByMode);
         if (modes.length === 0) return;
+        // Determine current aggregated list and slice based on range indices
+        const baseAgg = view === 'weekly' ? aggAllWeekly : aggAllYearly;
+        const length = baseAgg.length;
+        const startIdx = Math.max(0, Math.min(rangeStart, length - 1));
+        const endIdx = Math.max(startIdx, Math.min(rangeEnd, length - 1));
+        const sliceAgg = baseAgg.slice(startIdx, endIdx + 1);
         let labels;
         if (view === 'weekly') {
-          labels = aggAllWeekly.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`);
+          labels = sliceAgg.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`);
         } else {
-          labels = aggAllYearly.map(item => `${item.year}`);
+          labels = sliceAgg.map(item => `${item.year}`);
         }
         const datasets = modes.map(mode => {
           let data;
           if (view === 'weekly') {
-            // Create a map for quick lookup
+            // Create a map for quick lookup of weekly values
             const map = {};
             weeklyByMode[mode].forEach(item => {
               map[`${item.year}-${item.week}`] = item.value;
             });
-            data = aggAllWeekly.map(item => map[`${item.year}-${item.week}`] || 0);
+            data = sliceAgg.map(item => map[`${item.year}-${item.week}`] || 0);
           } else {
             const map = {};
             yearlyByMode[mode].forEach(item => {
               map[item.year] = item.value;
             });
-            data = aggAllYearly.map(item => map[item.year] || 0);
+            data = sliceAgg.map(item => map[item.year] || 0);
           }
+          // Custom color palette for each mode to differentiate lines
+          const modeColors = {
+            'Dublin Bus': '#2E7D32',
+            'Regional Bus': '#F57C00',
+            'Irish Rail': '#0288D1',
+            'Luas': '#6A1B9A',
+            'All Public Transport': '#00695C',
+          };
+          const color = modeColors[mode] || '#37474F';
           return {
             label: mode,
             data,
             tension: 0.3,
             borderWidth: 2,
             pointRadius: 0,
+            borderColor: color,
+            backgroundColor: 'rgba(0, 0, 0, 0)',
+            fill: false,
           };
         });
         const ctx = document.getElementById('servicesChart').getContext('2d');
@@ -456,13 +537,22 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-              x: { display: true, title: { display: false } },
-              y: { beginAtZero: true },
+              x: {
+                display: true,
+                title: { display: false },
+                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: { color: '#555' },
+              },
+              y: {
+                beginAtZero: true,
+                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: { color: '#555' },
+              },
             },
             plugins: { legend: { display: true, position: 'top' } },
           },
         });
-      }, [weeklyByMode, yearlyByMode, aggAllWeekly, aggAllYearly, view]);
+      }, [weeklyByMode, yearlyByMode, aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
 
       if (loading) {
         return React.createElement('div', { style: { padding: '2rem', textAlign: 'center' } }, 'Loading data...');
@@ -567,10 +657,14 @@
         React.createElement(
           'div',
           { className: 'chart-container' },
-          React.createElement('h2', null, 'Ridership Trend – All Public Transport'),
-          React.createElement('div', { style: { height: '300px' } },
-            React.createElement('canvas', { id: 'aggChart' })
-          )
+          [
+            React.createElement('h2', { key: 'title' }, 'Ridership Trend – All Public Transport'),
+            React.createElement('div', { key: 'canvas-wrap', style: { height: '300px' } },
+              React.createElement('canvas', { id: 'aggChart' })
+            ),
+            // Range slider for selecting the date range
+            React.createElement('div', { key: 'slider', id: 'rangeSlider', style: { marginTop: '1rem' } })
+          ]
         ),
         // Services chart
         React.createElement(
