@@ -9,6 +9,14 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <!-- Chart.js for charts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Chart.js Zoom/Pan plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.umd.min.js"></script>
+  <script>
+    // Register the zoom plugin once Chart.js is available
+    if (window.Chart && window.Chart.register) {
+      Chart.register(window['chartjs-plugin-zoom']);
+    }
+  </script>
   <!-- PapaParse for CSV parsing -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -183,6 +191,31 @@
       cursor: pointer;
       box-shadow: 0 0 2px rgba(0,0,0,0.3);
     }
+
+    /* Embed transport photos within cards */
+    .mode-photo {
+      width: 100%;
+      height: 120px;
+      object-fit: cover;
+      border-radius: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    /* Delta cards for week-on-week changes */
+    .delta-cards {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-top: 0.75rem;
+    }
+    .delta-card {
+      background: #fff;
+      border: 1px solid #e6e6e6;
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+    }
+    .delta-up { color: #2e7d32; }
+    .delta-down { color: #c62828; }
   </style>
 </head>
 <body>
@@ -202,6 +235,125 @@
         ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
       }
       return ISOweekStart;
+    }
+
+    // Format numbers with commas for tooltips and labels
+    const fmt = (n) => new Intl.NumberFormat('en-IE').format(Math.round(n));
+
+    // Convert chart series into a simple CSV and trigger download.  If `values`
+    // is an object mapping series names to arrays, a multi-column CSV will be
+    // generated with one column per series.  Otherwise, a two-column CSV
+    // containing Period and Value columns is produced.  Missing values are
+    // serialized as empty cells.
+    function datasetToCSV(filename, labels, values) {
+      let rows;
+      if (values && typeof values === 'object' && !Array.isArray(values)) {
+        // Multi-series: generate header row with series names
+        const seriesNames = Object.keys(values);
+        rows = [['Period', ...seriesNames]];
+        for (let i = 0; i < labels.length; i++) {
+          const row = [labels[i]];
+          for (const name of seriesNames) {
+            const val = values[name] && values[name][i] != null ? values[name][i] : '';
+            row.push(val);
+          }
+          rows.push(row);
+        }
+      } else {
+        // Single series
+        rows = [['Period','Value']];
+        for (let i = 0; i < labels.length; i++) {
+          const val = values && values[i] != null ? values[i] : '';
+          rows.push([labels[i], val]);
+        }
+      }
+      const csv = rows
+        .map(r => r
+          .map(v => String(v).replaceAll('"','""'))
+          .map(v => `"${v}"`)
+          .join(',')
+        )
+        .join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Download a chart canvas as PNG
+    function downloadPNG(canvasId, filename) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png', 1.0);
+      a.download = filename;
+      a.click();
+    }
+
+    // Simple linear forecast using least squares on recent points
+    function forecastSeries(values, steps = 12, lookback = 52) {
+      const arr = values.slice(-lookback);
+      const n = arr.length;
+      if (n < 8) return [];
+      const xs = [...Array(n).keys()];
+      const meanX = xs.reduce((a,b) => a + b, 0) / n;
+      const meanY = arr.reduce((a,b) => a + b, 0) / n;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) {
+        num += (xs[i] - meanX) * (arr[i] - meanY);
+        den += Math.pow(xs[i] - meanX, 2);
+      }
+      const b = den === 0 ? 0 : num / den;
+      const a = meanY - b * meanX;
+      const start = n;
+      const fc = [];
+      for (let k = 0; k < steps; k++) {
+        fc.push(a + b * (start + k));
+      }
+      return fc.map(v => Math.max(0, v));
+    }
+
+    // Compute week-on-week delta for a series (latest vs previous)
+    function weekDelta(series) {
+      for (let i = series.length - 1; i > 0; i--) {
+        const cur = series[i]?.value ?? series[i];
+        const prev = series[i-1]?.value ?? series[i-1];
+        if (cur != null && prev != null) {
+          const abs = cur - prev;
+          const pct = prev === 0 ? 0 : (abs / prev) * 100;
+          return { cur, prev, abs, pct };
+        }
+      }
+      return null;
+    }
+
+    // Render the week-on-week delta cards for each mode and aggregated data
+    function renderDeltas(weeklyByMode) {
+      const order = ['Dublin Bus', 'Regional Bus', 'Irish Rail', 'Luas', 'All Public Transport'];
+      const container = document.getElementById('delta-cards');
+      if (!container) return;
+      container.innerHTML = '';
+      order.forEach(mode => {
+        const series = weeklyByMode[mode];
+        if (!series || series.length < 2) return;
+        // series can be array of objects with value property or raw numbers
+        const arr = series.map(item => (item.value !== undefined ? item.value : item));
+        const d = weekDelta(arr);
+        if (!d) return;
+        const sign = d.abs >= 0 ? '▲' : '▼';
+        const cls = d.abs >= 0 ? 'delta-up' : 'delta-down';
+        const cardHtml = `
+          <div class="delta-card">
+            <div><strong>${mode}</strong></div>
+            <div class="${cls}">${sign} ${fmt(d.abs)} (${d.pct.toFixed(1)}%) WoW</div>
+            <div>Latest: ${fmt(d.cur)} | Prev: ${fmt(d.prev)}</div>
+          </div>
+        `;
+        container.insertAdjacentHTML('beforeend', cardHtml);
+      });
     }
 
     // Main React component
@@ -401,6 +553,11 @@
         // using the same weekly aggregate used for overall metrics
         mByMode['All Public Transport'] = computeMetrics(aggWeekly);
         setMetricsByMode(mByMode);
+        // Render week-on-week deltas across modes and aggregated
+        const weeklyByWithAll = { ...weeklyBy, 'All Public Transport': aggWeekly };
+        if (typeof renderDeltas === 'function') {
+          renderDeltas(weeklyByWithAll);
+        }
         // Compute update dates
         const lastItem = aggWeekly[aggWeekly.length - 1];
         if (lastItem) {
@@ -431,10 +588,25 @@
         const startIdx = Math.max(0, Math.min(rangeStart, length - 1));
         const endIdx = Math.max(startIdx, Math.min(rangeEnd, length - 1));
         const sliceAgg = baseAgg.slice(startIdx, endIdx + 1);
-        const labels = view === 'weekly'
+        // Build labels and data arrays based on current view
+        let labels = view === 'weekly'
           ? sliceAgg.map(item => `${item.year}W${String(item.week).padStart(2, '0')}`)
           : sliceAgg.map(item => `${item.year}`);
         const dataVals = sliceAgg.map(item => item.value);
+        // Save aggregated labels and values for CSV download
+        window.__aggLabels = labels;
+        window.__aggValues = dataVals;
+        // Generate a simple forecast (dashed) for the aggregate series
+        const stepCount = view === 'weekly' ? 12 : 3;
+        const fc = forecastSeries(dataVals, stepCount, view === 'weekly' ? 52 : Math.min(dataVals.length, 5));
+        // Extend labels with placeholder indicators (e.g., +1, +2)
+        const extendedLabels = labels.slice();
+        for (let i = 1; i <= fc.length; i++) {
+          extendedLabels.push('+' + i);
+        }
+        // Main dataset remains only actual values (Chart will skip missing points beyond original length)
+        const forecastData = new Array(labels.length).fill(null).concat(fc);
+        labels = extendedLabels;
         const ctx = document.getElementById('aggChart').getContext('2d');
         if (aggChartRef.current) aggChartRef.current.destroy();
         aggChartRef.current = new Chart(ctx, {
@@ -449,29 +621,59 @@
                 borderWidth: 2,
                 pointRadius: 0,
                 fill: true,
-                // Use a blue palette reminiscent of the Malaysian dashboard for the aggregate line
-                borderColor: '#1976d2',
-                backgroundColor: 'rgba(25, 118, 210, 0.15)',
+                borderColor: '#2a67c7',
+                backgroundColor: 'rgba(42, 103, 199, 0.15)',
+              },
+              {
+                label: 'Projection',
+                data: forecastData,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: false,
+                borderColor: '#2a67c7',
+                borderDash: [6, 4],
               },
             ],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             scales: {
               x: {
                 display: true,
-                title: { display: false },
                 grid: { color: 'rgba(0,0,0,0.05)' },
-                ticks: { color: '#555' },
+                ticks: { color: '#555', maxTicksLimit: 14 },
               },
               y: {
                 beginAtZero: true,
-                grid: { color: 'rgba(0,0,0,0.05)' },
-                ticks: { color: '#555' },
+                grid: { color: 'rgba(0,0,0,0.07)' },
+                ticks: { color: '#555', callback: (v) => fmt(v) },
               },
             },
-            plugins: { legend: { display: true, position: 'top' } },
+            plugins: {
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${fmt(ctx.parsed.y)}`,
+                },
+              },
+              zoom: {
+                zoom: {
+                  wheel: { enabled: true },
+                  drag: { enabled: true },
+                  mode: 'x',
+                },
+                pan: {
+                  enabled: true,
+                  mode: 'x',
+                },
+                limits: {
+                  x: { min: 0 },
+                },
+              },
+            },
           },
         });
       }, [aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
@@ -550,22 +752,52 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             scales: {
               x: {
                 display: true,
-                title: { display: false },
                 grid: { color: 'rgba(0,0,0,0.05)' },
-                ticks: { color: '#555' },
+                ticks: { color: '#555', maxTicksLimit: 14 },
               },
               y: {
                 beginAtZero: true,
-                grid: { color: 'rgba(0,0,0,0.05)' },
-                ticks: { color: '#555' },
+                grid: { color: 'rgba(0,0,0,0.07)' },
+                ticks: { color: '#555', callback: (v) => fmt(v) },
               },
             },
-            plugins: { legend: { display: true, position: 'top' } },
+            plugins: {
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${fmt(ctx.parsed.y)}`,
+                },
+              },
+              zoom: {
+                zoom: {
+                  wheel: { enabled: true },
+                  drag: { enabled: true },
+                  mode: 'x',
+                },
+                pan: {
+                  enabled: true,
+                  mode: 'x',
+                },
+                limits: {
+                  x: { min: 0 },
+                },
+              },
+            },
           },
         });
+        // Persist labels and values globally for CSV download.  Build a
+        // multi-series map where keys are the dataset labels and values are the
+        // arrays of data points.
+        const csvMap = {};
+        datasets.forEach((ds) => {
+          csvMap[ds.label] = ds.data;
+        });
+        window.__servicesLabels = labels;
+        window.__servicesValues = csvMap;
       }, [weeklyByMode, yearlyByMode, aggAllWeekly, aggAllYearly, view, rangeStart, rangeEnd]);
 
       // Event handlers for the range sliders.  They update the start and end
@@ -601,15 +833,42 @@
         const m = metricsByMode[mode];
         const trendWeek = m.weeklyTrend.toFixed(1) + '%';
         const trendMonth = m.monthlyTrend.toFixed(1) + '%';
-        return React.createElement(
-          'div',
-          { className: 'service-metric-card', key: mode },
-          React.createElement('h3', null, mode),
-          React.createElement('div', { className: 'service-metric-values' }, [
+        // Map each mode to its corresponding image.  If no image is defined for
+        // a mode (e.g., aggregated), the image element is omitted.
+        const imgMap = {
+          'Dublin Bus': 'dublin_bus.jpg',
+          'Regional Bus': 'bus_eireann.jpg',
+          'Irish Rail': 'intercity_train.jpg',
+          'Luas': 'luas_tram.jpg',
+          'DART': 'dart_train.jpg',
+          'Local Link': 'local_link_bus.jpg',
+        };
+        const imgSrc = imgMap[mode] || null;
+        const children = [];
+        if (imgSrc) {
+          children.push(
+            React.createElement('img', {
+              key: `${mode}-img`,
+              src: imgSrc,
+              alt: `${mode} photo`,
+              className: 'mode-photo',
+            })
+          );
+        }
+        children.push(
+          React.createElement('h3', { key: `${mode}-title` }, mode)
+        );
+        children.push(
+          React.createElement('div', { className: 'service-metric-values', key: `${mode}-values` }, [
             React.createElement('span', { key: 'latest' }, `Latest: ${m.latest.toLocaleString()}`),
             React.createElement('span', { key: 'week' }, `Trend (weekly): ${trendWeek}`),
             React.createElement('span', { key: 'month' }, `Trend (4w): ${trendMonth}`),
           ])
+        );
+        return React.createElement(
+          'div',
+          { className: 'service-metric-card', key: mode },
+          children
         );
       });
 
@@ -661,6 +920,15 @@
               ),
               React.createElement('div', { className: 'metric-label' }, 'Trend (4w)')
             ),
+          ]
+        ),
+        // What changed this week? delta cards section
+        React.createElement(
+          'div',
+          { className: 'chart-container', key: 'delta-section' },
+          [
+            React.createElement('h2', { key: 'delta-title' }, 'What changed this week?'),
+            React.createElement('div', { id: 'delta-cards', className: 'delta-cards', key: 'delta-cards' }),
           ]
         ),
         // View toggle
@@ -722,6 +990,21 @@
                   onChange: handleEndChange,
                 }),
               ]
+            ),
+            // Download buttons for the aggregated chart
+            React.createElement(
+              'div',
+              { className: 'range-controls', key: 'agg-download' },
+              [
+                React.createElement('button', {
+                  key: 'download-png',
+                  onClick: () => downloadPNG('aggChart', 'all-public-transport.png'),
+                }, 'Download PNG'),
+                React.createElement('button', {
+                  key: 'download-csv',
+                  onClick: () => datasetToCSV('all-public-transport.csv', window.__aggLabels || [], window.__aggValues || []),
+                }, 'Download CSV'),
+              ]
             )
           ]
         ),
@@ -729,59 +1012,33 @@
         React.createElement(
           'div',
           { className: 'services-chart-container' },
-          React.createElement('h2', null, 'Ridership Trend by Service'),
-          React.createElement('div', { style: { height: '300px' } },
-            React.createElement('canvas', { id: 'servicesChart' })
-          )
+          [
+            React.createElement('h2', { key: 'services-title' }, 'Ridership Trend by Service'),
+            React.createElement('div', { key: 'services-canvas-wrap', style: { height: '300px' } },
+              React.createElement('canvas', { id: 'servicesChart' })
+            ),
+            // Download buttons for the services chart
+            React.createElement(
+              'div',
+              { className: 'range-controls', key: 'services-download' },
+              [
+                React.createElement('button', {
+                  key: 'download-png',
+                  onClick: () => downloadPNG('servicesChart', 'ridership-by-service.png'),
+                }, 'Download PNG'),
+                React.createElement('button', {
+                  key: 'download-csv',
+                  onClick: () => datasetToCSV('ridership-by-service.csv', window.__servicesLabels || [], window.__servicesValues || {}),
+                }, 'Download CSV'),
+              ]
+            ),
+          ]
         ),
         // Services metrics cards
         React.createElement(
           'div',
           { className: 'services-metrics-container' },
           serviceCards
-        ),
-        // Mode gallery with images
-        React.createElement(
-          'div',
-          { className: 'mode-gallery' },
-          [
-            React.createElement(
-              'figure',
-              { key: 'dublin-bus' },
-              React.createElement('img', { src: 'dublin_bus.jpg', alt: 'Dublin Bus double‑decker' }),
-              React.createElement('figcaption', null, 'Dublin Bus – CC BY-SA / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'regional-bus' },
-              React.createElement('img', { src: 'bus_eireann.jpg', alt: 'Regional Bus (Bus Éireann) coach' }),
-              React.createElement('figcaption', null, 'Regional Bus (Bus Éireann) – CC BY 4.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'luas' },
-              React.createElement('img', { src: 'luas_tram.jpg', alt: 'Luas tram on O\'Connell Street' }),
-              React.createElement('figcaption', null, 'Luas tram – CC BY 3.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'irish-rail-icr' },
-              React.createElement('img', { src: 'intercity_train.jpg', alt: 'Irish Rail InterCity Railcar' }),
-              React.createElement('figcaption', null, 'Irish Rail InterCity – CC BY 2.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'irish-rail-dart' },
-              React.createElement('img', { src: 'dart_train.jpg', alt: 'DART train at station' }),
-              React.createElement('figcaption', null, 'Irish Rail DART – CC BY 4.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'local-link' },
-              React.createElement('img', { src: 'local_link_bus.jpg', alt: 'TFI Local Link bus' }),
-              React.createElement('figcaption', null, 'TFI Local Link bus')
-            ),
-          ]
         ),
         // Data source note
         React.createElement(
