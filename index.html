@@ -121,39 +121,12 @@
       color: #555;
       margin-bottom: 0.25rem;
     }
-    /* add here */
-    .mode-photo {
+    .service-metric-card img {
       width: 100%;
       height: 120px;
       object-fit: cover;
       border-radius: 0.75rem;
       margin-bottom: 0.5rem;
-}
-    /* Mode gallery for images */
-    .mode-gallery {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin: 2rem 1rem;
-    }
-    .mode-gallery figure {
-      margin: 0;
-      background: #fff;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    }
-    .mode-gallery img {
-      width: 100%;
-      height: 150px;
-      object-fit: cover;
-      display: block;
-    }
-    .mode-gallery figcaption {
-      padding: 0.5rem;
-      font-size: 0.75rem;
-      color: #555;
-      text-align: center;
     }
 
     /* Range slider controls for selecting the date window */
@@ -685,6 +658,12 @@
       }
 
       // Render metrics for each service mode
+      const images = {
+        'Dublin Bus': { src: 'dublin_bus.jpg', alt: 'Dublin Bus double\u2011decker' },
+        'Regional Bus': { src: 'bus_eireann.jpg', alt: 'Regional Bus (Bus \u00c9ireann) coach' },
+        'Luas': { src: 'luas_tram.jpg', alt: 'Luas tram on O\'Connell Street' },
+        'Irish Rail': { src: 'intercity_train.jpg', alt: 'Irish Rail InterCity Railcar' },
+      };
       const serviceCards = Object.keys(metricsByMode).map(mode => {
         const m = metricsByMode[mode];
         const trendWeek = m.weeklyTrend.toFixed(1) + '%';
@@ -693,17 +672,21 @@
         const yoy = yoyByMode[mode] || { weekAbs: 0, weekPct: 0, ytdAbs: 0, ytdPct: 0 };
         const weekLabel = yoy.weekPct >= 0 ? '+' + yoy.weekPct.toFixed(1) + '%' : yoy.weekPct.toFixed(1) + '%';
         const ytdLabel = yoy.ytdPct >= 0 ? '+' + yoy.ytdPct.toFixed(1) + '%' : yoy.ytdPct.toFixed(1) + '%';
+        const img = images[mode];
         return React.createElement(
           'div',
           { className: 'service-metric-card', key: mode },
-          React.createElement('h3', null, mode),
-          React.createElement('div', { className: 'service-metric-values' }, [
-            React.createElement('span', { key: 'latest' }, `Latest: ${m.latest.toLocaleString()}`),
-            React.createElement('span', { key: 'week' }, `Trend (weekly): ${trendWeek}`),
-            React.createElement('span', { key: 'month' }, `Trend (4w): ${trendMonth}`),
-            React.createElement('span', { key: 'yoyweek' }, `YoY (week): ${weekLabel}`),
-            React.createElement('span', { key: 'yoyytd' }, `YoY (YTD): ${ytdLabel}`),
-          ])
+          [
+            img && React.createElement('img', { key: 'img', src: img.src, alt: img.alt }),
+            React.createElement('h3', { key: 'title' }, mode),
+            React.createElement('div', { className: 'service-metric-values', key: 'vals' }, [
+              React.createElement('span', { key: 'latest' }, `Latest: ${m.latest.toLocaleString()}`),
+              React.createElement('span', { key: 'week' }, `Trend (weekly): ${trendWeek}`),
+              React.createElement('span', { key: 'month' }, `Trend (4w): ${trendMonth}`),
+              React.createElement('span', { key: 'yoyweek' }, `YoY (week): ${weekLabel}`),
+              React.createElement('span', { key: 'yoyytd' }, `YoY (YTD): ${ytdLabel}`),
+            ])
+          ]
         );
       });
 
@@ -858,49 +841,6 @@
           'div',
           { className: 'services-metrics-container' },
           serviceCards
-        ),
-        // Mode gallery with images
-        React.createElement(
-          'div',
-          { className: 'mode-gallery' },
-          [
-            React.createElement(
-              'figure',
-              { key: 'dublin-bus' },
-              React.createElement('img', { src: 'dublin_bus.jpg', alt: 'Dublin Bus double‑decker' }),
-              React.createElement('figcaption', null, 'Dublin Bus – CC BY-SA / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'regional-bus' },
-              React.createElement('img', { src: 'bus_eireann.jpg', alt: 'Regional Bus (Bus Éireann) coach' }),
-              React.createElement('figcaption', null, 'Regional Bus (Bus Éireann) – CC BY 4.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'luas' },
-              React.createElement('img', { src: 'luas_tram.jpg', alt: 'Luas tram on O\'Connell Street' }),
-              React.createElement('figcaption', null, 'Luas tram – CC BY 3.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'irish-rail-icr' },
-              React.createElement('img', { src: 'intercity_train.jpg', alt: 'Irish Rail InterCity Railcar' }),
-              React.createElement('figcaption', null, 'Irish Rail InterCity – CC BY 2.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'irish-rail-dart' },
-              React.createElement('img', { src: 'dart_train.jpg', alt: 'DART train at station' }),
-              React.createElement('figcaption', null, 'Irish Rail DART – CC BY 4.0 / Wikimedia Commons')
-            ),
-            React.createElement(
-              'figure',
-              { key: 'local-link' },
-              React.createElement('img', { src: 'local_link_bus.jpg', alt: 'TFI Local Link bus' }),
-              React.createElement('figcaption', null, 'TFI Local Link bus')
-            ),
-          ]
         ),
         // Data source note
         React.createElement(
