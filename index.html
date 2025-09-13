@@ -44,6 +44,8 @@
       font-size: 0.85rem;
       color: #555;
       margin-bottom: 1rem;
+
+      
     }
     /* Metrics cards */
     .metrics-container {
@@ -79,6 +81,7 @@
       margin: 0 0.25rem;
       padding: 0.5rem 1rem;
       border: none;
+
       border-radius: 4px;
       cursor: pointer;
       background: #e0e0e0;
@@ -768,18 +771,8 @@
               React.createElement('div', { className: 'metric-value' }, yoyYtdLabel),
               React.createElement('div', { className: 'metric-label' }, 'YoY (YTD)')
             ),
-            React.createElement(
-              'div',
-              { className: 'metric-card', key: 'yoyWeek' },
-              React.createElement('div', { className: 'metric-value' }, yoyWeekLabel),
-              React.createElement('div', { className: 'metric-label' }, 'YoY (week)')
-            ),
-            React.createElement(
-              'div',
-              { className: 'metric-card', key: 'yoyYtd' },
-              React.createElement('div', { className: 'metric-value' }, yoyYtdLabel),
-              React.createElement('div', { className: 'metric-label' }, 'YoY (YTD)')
-            ),
+            
+          ),
           ]
         ),
         // View toggle
@@ -814,6 +807,7 @@
           [
             React.createElement('h2', { key: 'title' }, 'Ridership Trend – All Public Transport'),
             React.createElement('div', { key: 'canvas-wrap', style: { height: '300px' } },
+                                
               React.createElement('canvas', { id: 'aggChart' })
             ),
             // Simple range inputs to select the visible date range.  The first input
@@ -848,6 +842,7 @@
         React.createElement(
           'div',
           { className: 'services-chart-container' },
+
           React.createElement('h2', null, 'Ridership Trend by Service'),
           React.createElement('div', { style: { height: '300px' } },
             React.createElement('canvas', { id: 'servicesChart' })
@@ -882,6 +877,7 @@
               React.createElement('img', { src: 'luas_tram.jpg', alt: 'Luas tram on O\'Connell Street' }),
               React.createElement('figcaption', null, 'Luas tram – CC BY 3.0 / Wikimedia Commons')
             ),
+           
             React.createElement(
               'figure',
               { key: 'irish-rail-icr' },
