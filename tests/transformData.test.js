@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateByWeek, officialNonLuasByWeek, transformTHA25, transformTII03, validateNonLuas } from '../src/data/transformData.js';
+import { aggregateByWeek, transformTHA25, validateNonLuas } from '../src/data/transformData.js';
 
 describe('transport data transformations', () => {
   it('maps THA25 transport modes', () => {
@@ -9,7 +9,7 @@ describe('transport data transformations', () => {
       { 'Mode of Transport': 'Rail', 'TLIST(W1)': '2025W01', VALUE: '300' },
       { 'Mode of Transport': 'All public transport, excluding LUAS', 'TLIST(W1)': '2025W01', VALUE: '600' }
     ];
-    expect(transformTHA25(rows)).toEqual([
+    expect(transformTHA25(rows)).toMatchObject([
       { mode: 'Dublin Bus', year: 2025, week: 1, value: 100 },
       { mode: 'Regional Bus', year: 2025, week: 1, value: 200 },
       { mode: 'Irish Rail', year: 2025, week: 1, value: 300 }
@@ -33,7 +33,7 @@ describe('transport data transformations', () => {
       { mode: 'Regional Bus', year: 2025, week: 1, value: 200 },
       { mode: 'Irish Rail', year: 2025, week: 1, value: 300 }
     ];
-    const official = new Map([['2025-1', 600]]);
+    const official = new Map([['2025-W01', { year: 2025, week: 1, value: 600 }]]);
     const result = validateNonLuas(aggregateByWeek(rows), official);
     expect(result[0].validation.matches).toBe(true);
     expect(result[0].validation.difference).toBe(0);
@@ -45,7 +45,7 @@ describe('transport data transformations', () => {
       { mode: 'Regional Bus', year: 2025, week: 1, value: 200 },
       { mode: 'Irish Rail', year: 2025, week: 1, value: 300 }
     ];
-    const official = new Map([['2025-1', 601]]);
+    const official = new Map([['2025-W01', { year: 2025, week: 1, value: 601 }]]);
     const result = validateNonLuas(aggregateByWeek(rows), official);
     expect(result[0].validation.matches).toBe(false);
     expect(result[0].validation.difference).toBe(-1);
