@@ -60,3 +60,5 @@ jobs:
             git commit -m "chore: publish v2 preview"
             git push origin main
           fi
+
+      # Keep the V2 preview isolated under /v2; production remains at /.
