@@ -6,7 +6,7 @@ import { comparableYtd } from './calculations/ytd.js';
 import TransportTrendChart from './components/TransportTrendChart.jsx';
 import ContributionPanel from './components/ContributionPanel.jsx';
 
-const DATA_BASE = 'https://raw.githubusercontent.com/DaraghOsully/public-transport-ireland-dashboard/v1-foundation/';
+const DATA_BASE = './';
 const fmt = new Intl.NumberFormat('en-IE');
 const pct = new Intl.NumberFormat('en-IE', { style: 'percent', maximumFractionDigits: 1 });
 async function csv(path) { const res = await fetch(DATA_BASE + path); if (!res.ok) throw new Error(`Could not load ${path} (${res.status})`); return Papa.parse(await res.text(), { header: true, skipEmptyLines: true }).data; }
@@ -31,12 +31,7 @@ export default function App() {
   return <main className="shell">
     <header className="hero"><div><span className="eyebrow">IRELAND · TRANSPORT MONITOR</span><h1>Public transport, measured week by week.</h1><p>What changed, where it changed, and whether the numbers reconcile.</p></div><div className="hero-stat"><strong>{fmt.format(modeValue(latest, selectedMode))}</strong><span>journeys · {latest.year} W{String(latest.week).padStart(2,'0')}</span></div></header>
     <section className="controls"><label>Measure<select value={selectedMode} onChange={e=>setSelectedMode(e.target.value)}><option>All Public Transport</option>{Object.values(MODES).map(m=><option key={m}>{m}</option>)}</select></label><label>Year<select value={year} onChange={e=>setYear(e.target.value)}><option value="all">All years</option>{years.map(y=><option key={y}>{y}</option>)}</select></label><label>Weeks shown<input type="range" min="8" max="156" value={range} onChange={e=>setRange(Number(e.target.value))}/><span>{range} weeks</span></label></section>
-    <section className="cards">
-      <article><span>Latest week</span><strong>{fmt.format(modeValue(latest, selectedMode))}</strong><small>passenger journeys</small></article>
-      <article><span>YTD performance</span><strong className={ytd?.yoy > 0 ? 'up' : ytd?.yoy < 0 ? 'down' : ''}>{ytd?.yoy == null ? '—' : `${ytd.yoy > 0 ? '+' : ''}${pct.format(ytd.yoy)}`}</strong><small>{ytd?.weeks ?? 0} comparable weeks vs {analysisYear - 1}</small></article>
-      <article><span>Year on year</span><strong className={trend > 0 ? 'up' : trend < 0 ? 'down' : ''}>{trend == null ? '—' : `${trend > 0 ? '+' : ''}${pct.format(trend)}`}</strong><small>same ISO week last year</small></article>
-      <article><span>Data validation</span><strong className={validation?.matches ? 'up' : 'down'}>{validation?.matches ? '✓ Match' : validation?.official == null ? '—' : 'Check'}</strong><small>THA25 official non-Luas total</small></article>
-    </section>
+    <section className="cards"><article><span>Latest week</span><strong>{fmt.format(modeValue(latest, selectedMode))}</strong><small>passenger journeys</small></article><article><span>YTD performance</span><strong className={ytd?.yoy > 0 ? 'up' : ytd?.yoy < 0 ? 'down' : ''}>{ytd?.yoy == null ? '—' : `${ytd.yoy > 0 ? '+' : ''}${pct.format(ytd.yoy)}`}</strong><small>{ytd?.weeks ?? 0} comparable weeks vs {analysisYear - 1}</small></article><article><span>Year on year</span><strong className={trend > 0 ? 'up' : trend < 0 ? 'down' : ''}>{trend == null ? '—' : `${trend > 0 ? '+' : ''}${pct.format(trend)}`}</strong><small>same ISO week last year</small></article><article><span>Data validation</span><strong className={validation?.matches ? 'up' : 'down'}>{validation?.matches ? '✓ Match' : validation?.official == null ? '—' : 'Check'}</strong><small>THA25 official non-Luas total</small></article></section>
     <section className="insight-grid"><div className="insight-main"><span className="eyebrow">WHAT CHANGED?</span><h2>{insights[0]?.text ?? 'No comparable insight available yet.'}</h2><p>Insights are calculated directly from comparable weekly observations — not written by hand.</p></div><div className="insight-side"><span className="eyebrow">DATA FRESHNESS</span><strong>{sourceLatest ? `Latest source: ${sourceLatest}` : 'Freshness not verified'}</strong><span>{freshness ? `Last checked ${freshness.toLocaleDateString('en-IE')}` : 'Automated source check pending'}</span></div></section>
     {analysisYear && <ContributionPanel rows={data} year={analysisYear} endWeek={analysisWeek} />}
     <TransportTrendChart rows={filtered} />
