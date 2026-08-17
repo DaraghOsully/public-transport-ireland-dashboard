@@ -1,13 +1,13 @@
 {
-  "checkedAt": "2026-08-17T00:00:00.000Z",
+  "checkedAt": null,
   "sources": {
     "THA25": {
       "url": "https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/THA25/CSV/1.0/en",
-      "latest": { "year": 2025, "week": 48 }
+      "latest": null
     },
     "TII03": {
       "url": "https://ws.cso.ie/public/api.restful/PxStat.Data.Cube_API.ReadDataset/TII03/CSV/1.0/en",
-      "latest": { "year": 2026, "week": 27 }
+      "latest": null
     }
   }
 }
