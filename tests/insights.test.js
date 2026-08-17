@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildInsights, modeChanges } from '../src/calculations/insights.js';
+import { buildInsights, modeChanges, rankChanges } from '../src/calculations/insights.js';
 
 describe('transport insights', () => {
   const current = [
@@ -13,16 +13,28 @@ describe('transport insights', () => {
     { mode: 'Luas', value: 100 }
   ];
 
-  it('calculates comparable mode changes', () => {
+  it('calculates both absolute and percentage changes', () => {
     const changes = modeChanges(current, prior);
-    expect(changes[0].mode).toBe('Dublin Bus');
-    expect(changes[0].changePct).toBe(20);
+    expect(changes.find(r => r.mode === 'Dublin Bus')).toMatchObject({ absoluteChange: 20, changePct: 20 });
   });
 
-  it('generates a concise largest-change insight', () => {
-    const insights = buildInsights(current, prior);
-    expect(insights[0].type).toBe('largest-mode-change');
-    expect(insights[0].text).toContain('Dublin Bus increased 20.0%');
+  it('ranks changes independently by absolute and percentage movement', () => {
+    const result = rankChanges(
+      [{ mode: 'Large Mode', value: 125000 }, { mode: 'Small Mode', value: 1500 }],
+      [{ mode: 'Large Mode', value: 100000 }, { mode: 'Small Mode', value: 1000 }]
+    );
+    expect(result.byAbsolute[0].mode).toBe('Large Mode');
+    expect(result.byPercentage[0].mode).toBe('Small Mode');
+  });
+
+  it('uses absolute movement for the primary insight', () => {
+    const insights = buildInsights(
+      [{ mode: 'Large Mode', value: 125000 }, { mode: 'Small Mode', value: 1500 }],
+      [{ mode: 'Large Mode', value: 100000 }, { mode: 'Small Mode', value: 1000 }]
+    );
+    expect(insights[0].type).toBe('largest-absolute-change');
+    expect(insights[0].mode).toBe('Large Mode');
+    expect(insights[0].text).toContain('25,000');
   });
 
   it('does not fabricate insights when there is no comparable data', () => {
