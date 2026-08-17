@@ -10,14 +10,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "chart.js": "latest",
-    "papaparse": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@vitejs/plugin-react": "6.0.5",
+    "chart.js": "4.5.1",
+    "papaparse": "5.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "vite": "latest",
-    "vitest": "latest"
+    "vite": "8.2.2",
+    "vitest": "4.1.10"
   }
 }
