@@ -1,0 +1,62 @@
+name: Publish V2 preview
+
+on:
+  push:
+    branches:
+      - v2-analytics
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout V2
+        uses: actions/checkout@v4
+        with:
+          ref: v2-analytics
+          path: v2-source
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: v2-source/package.json
+
+      - name: Install dependencies
+        working-directory: v2-source
+        run: npm install --no-audit --no-fund
+
+      - name: Build V2
+        working-directory: v2-source
+        run: npm run build
+
+      - name: Checkout main Pages site
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: pages-site
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Replace V2 preview
+        run: |
+          rm -rf pages-site/v2
+          mkdir -p pages-site/v2
+          cp -R v2-source/dist/. pages-site/v2/
+
+      - name: Publish V2 preview
+        working-directory: pages-site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2
+          if git diff --cached --quiet; then
+            echo "No V2 preview changes to publish."
+          else
+            git commit -m "chore: publish v2 preview"
+            git push origin main
+          fi
