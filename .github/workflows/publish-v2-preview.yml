@@ -47,6 +47,8 @@ jobs:
           rm -rf pages-site/v2
           mkdir -p pages-site/v2
           cp -R v2-source/dist/. pages-site/v2/
+          cp v2-source/THA25.csv pages-site/v2/THA25.csv
+          cp v2-source/TII03.csv pages-site/v2/TII03.csv
 
       - name: Publish V2 preview
         working-directory: pages-site
@@ -60,5 +62,3 @@ jobs:
             git commit -m "chore: publish v2 preview"
             git push origin main
           fi
-
-      # Keep the V2 preview isolated under /v2; production remains at /.
